@@ -22,6 +22,8 @@ registry_mcp:
     - service_health
     - service_register
     - service_scan
+    - service_todo
+    - service_todos
 
 tools:
   - id: cursor

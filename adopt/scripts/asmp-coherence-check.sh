@@ -116,6 +116,8 @@ check "RELEASE-INDEX: deploy-asmp-site" "test -f '$ROOT/adopt/skills/deploy-asmp
 
 # MCP catalog lists service_scan
 warn "catalog: service_scan" "rg -q 'service_scan' '$ROOT/adopt/catalog/agent-tools.yaml'"
+warn "catalog: service_todo" "rg -q 'service_todo' '$ROOT/adopt/catalog/agent-tools.yaml'"
+warn "catalog: service_todos" "rg -q 'service_todos' '$ROOT/adopt/catalog/agent-tools.yaml'"
 
 # Repo cleanliness (warn only)
 for repo in "$ROOT" "$SITE" "$RUNTIME"; do

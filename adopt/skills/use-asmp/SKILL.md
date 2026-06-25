@@ -59,10 +59,20 @@ Child skills live under `adopt/skills/` in the ASMP spec repo, or at `~/.agents/
 Before guessing ports or grepping repos:
 
 ```
+service_scan()
 service_find(capability="dns.cloudflare")
 # or
 curl -s "http://127.0.0.1:7700/capabilities?provides=dns.cloudflare"
 ```
+
+If lookup misses but you found real software with no manifest, **self-heal**:
+
+```
+service_todo(name="...", note="what you observed", repo="...")
+# or: asmp todo <name> --note "..."
+```
+
+Review backlog: `service_todos()` or `asmp todos`. Promote with `asmp.yaml` + announce.
 
 ## MCP bridge
 
