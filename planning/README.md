@@ -19,3 +19,9 @@ Planning documents for the Agent Service Manifest Protocol bootstrap.
 ## Gate criteria
 
 Do not start Tier N+1 until Tier N gate passes. See BOOTSTRAP-50.md for each tier.
+
+## GitHub tracking
+
+- **Milestones:** Tier 1–7 in [agent-service-manifest-protocol](https://github.com/agent-service-manifest-protocol/agent-service-manifest-protocol/milestones)
+- **Issues:** [#1]–[#50] bootstrap items — [all issues](https://github.com/agent-service-manifest-protocol/agent-service-manifest-protocol/issues?q=label%3Abootstrap)
+- **Recreate:** `SKIP_SETUP=1 ./scripts/create-bootstrap-issues.sh` (idempotent)
