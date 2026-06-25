@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # ASMP litmus — quick gate checks for registry + discovery.
+# Prefer: asmp litmus  (if ~/.asmp/bin/asmp is installed)
 set -euo pipefail
+
+if command -v asmp >/dev/null 2>&1; then
+  exec asmp litmus
+fi
+if [[ -x "${HOME}/.asmp/bin/asmp" ]]; then
+  exec "${HOME}/.asmp/bin/asmp" litmus
+fi
 
 REGISTRY="${ASMP_REGISTRY_URL:-http://127.0.0.1:7700}"
 PASS=0
