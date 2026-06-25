@@ -23,6 +23,7 @@ Phone book for installation skills. Agents read this before doing any ASMP work.
 |-------|------|--------|
 | [discover-agent-tools](../discover-agent-tools/SKILL.md) | Takeoff, audit, new tool installed, drift suspected | Report N/M surfaces wired |
 | [discover-asmp](../discover-asmp/SKILL.md) | "What handles X?" before building | Non-empty capability query |
+| [improve-asmp-routing](../improve-asmp-routing/SKILL.md) | `/ask` chooses the wrong owner, weak confidence, or new boundary learned | Before/after owner + boundary eval |
 | [register-asmp-service](../register-asmp-service/SKILL.md) | New daemon/API found on host | `GET /services/{name}` |
 
 ## Catalog

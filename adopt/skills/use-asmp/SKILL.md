@@ -39,6 +39,7 @@ Pass: JSON with service counts (director-daemon registry) or `"status": "ok"` (b
 | Need to wire Grok / project MCP | `install-asmp-mcp-grok` |
 | Audit which AI tools are present + wired | `discover-agent-tools` |
 | Find a service by capability | `discover-asmp` |
+| Fix wrong owner/confidence from `/ask` | `improve-asmp-routing` |
 | Register a new local service | `register-asmp-service` |
 
 ## Release router table
