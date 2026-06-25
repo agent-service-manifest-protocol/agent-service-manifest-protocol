@@ -74,6 +74,24 @@ service_todo(name="...", note="what you observed", repo="...")
 
 Review backlog: `service_todos()` or `asmp todos`. Promote with `asmp.yaml` + announce.
 
+## Boundary habit
+
+When natural-language discovery returns multiple plausible services, do not
+blindly trust the top ranked result. Use the ASMP boundary pattern:
+
+1. Read the top candidates and their manifest evidence.
+2. Prefer `owns` over `supports`, and `supports` over generic `provides`.
+3. Apply `aliases`, `positive_examples`, `negative_examples`, and `anti_routes`
+   as routing evidence.
+4. If two services remain close, use or create an external routing-policy file
+   owned by the host or organization.
+5. Return `owner`, `confidence`, `runner_up`, `rule_hits`, and `alternates`.
+6. Store durable learning in manifests, policy, or the local memory system; do
+   not bury the correction in a chat transcript.
+
+ASMP is the interconnect and discovery layer. It should find candidates and
+expose evidence. Local policy decides close ownership boundaries.
+
 ## MCP bridge
 
 Preferred global server name: `asmp-registry`

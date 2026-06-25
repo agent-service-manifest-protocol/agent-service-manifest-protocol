@@ -140,10 +140,40 @@ capabilities:
     - email.decide
     - email.search
     - email.read
+  # Optional routing semantics for registries that answer natural-language
+  # questions such as "what should handle this job?"
+  owns:
+    - email.workflow.intelligence
+    - email.question.answering
+  supports:
+    - crm.contact.create
+    - compliance.pii.review
+  aliases:
+    - email brain
+    - inbox intelligence
+    - mail questions
+  anti_routes:
+    - calendar.schedule
+    - filesystem.backup
   requires:
     - apple-mail.envelope-index:read
     - claude-p:execute
     - filesystem:read:~/Library/Mail
+
+positive_examples:
+  - "answer a question from recent email"
+  - "classify inbound mail"
+  - "find the thread about a customer"
+
+negative_examples:
+  - query: "schedule a meeting from this email"
+    handoff: calendar-agent
+  - query: "back up the Mail directory"
+    handoff: backup-daemon
+
+when_not_to_use:
+  - "Do not use for calendar writes; hand off to the calendar service."
+  - "Do not use for raw filesystem backups."
 
 data:
   sensitivity: medium
@@ -213,6 +243,91 @@ GET    /capabilities          Query services by capability
 POST   /services/{name}/mods  Attach a mod to a service
 DELETE /services/{name}/mods/{mod}  Detach a mod
 ```
+
+### Natural-language discovery (adoption layer)
+
+The lean ASMP core is service declaration and capability discovery. Hosts may
+also expose a natural-language routing endpoint for agents:
+
+```text
+GET /ask?q=<plain-language-question>
+```
+
+This endpoint should not replace the manifest. It should search registered
+manifests, apply local routing policy, and return an explainable owner:
+
+```json
+{
+  "query": "ship data to Supabase",
+  "owner": "greenmark-data-shipper",
+  "confidence": "high",
+  "boundary_decision": {
+    "method": "boundary-policy-v0",
+    "margin": 0.18,
+    "runner_up": {"service": "cerebro-shipr", "score": 0.41},
+    "rule_hits": [
+      {
+        "boundary": "application release vs data publication",
+        "hit_counts": {"greenmark-data-shipper": 2}
+      }
+    ]
+  },
+  "results": [
+    {"service": "greenmark-data-shipper", "score": 0.59},
+    {"service": "cerebro-shipr", "score": 0.41}
+  ]
+}
+```
+
+Recommended response fields:
+
+- `owner`: the selected service, or `null` if the registry abstains.
+- `confidence`: `high`, `medium`, `low`, or `none`.
+- `boundary_decision`: how local policy resolved close candidates.
+- `results`: ranked candidates with scores and evidence.
+- `alternates`: plausible handoffs when the owner is uncertain.
+
+Generated explanations are not proof. A registry should expose retrieval
+evidence, rule hits, and confidence so another agent can challenge or audit the
+decision.
+
+## Policy and decision boundaries
+
+ASMP manifests describe services. They should not try to encode all local
+judgment into every service file. When two services are easy to confuse, use an
+external policy file owned by the host or organization:
+
+```yaml
+asmp_policy: "0.1"
+name: routing-policy
+defaults:
+  boundary_win_bonus: 0.12
+  boundary_margin: 0.04
+  high_confidence_margin: 0.08
+boundaries:
+  - name: application release vs data publication
+    services: [app-shipper, data-shipper]
+    phrases:
+      app-shipper:
+        - deploy app
+        - production release
+      data-shipper:
+        - publish data
+        - publication batch
+        - warehouse parity
+```
+
+Policy files are intentionally outside the lean manifest. This keeps ASMP
+portable while still allowing a host to learn local decision boundaries over
+time.
+
+Practical routing model:
+
+1. Search manifests with keyword, lexical, semantic, or RRF-style retrieval.
+2. Use `owns`, `supports`, `aliases`, examples, and `anti_routes` as evidence.
+3. Apply local boundary policy when top candidates are close.
+4. Return owner, confidence, runner-up, and rule hits.
+5. Add human corrections to policy or service examples, not to hidden prompts.
 
 ### Registration flow
 
