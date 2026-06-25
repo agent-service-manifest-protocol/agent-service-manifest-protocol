@@ -38,3 +38,9 @@ Update the catalog when a new major AI coding tool ships. Scanners diff disk aga
 ```
 
 Or ask an agent to follow `discover-agent-tools` skill.
+
+## Release layer
+
+Shipping ASMP itself (docs, marketing, multi-repo, live site) uses a separate index:
+
+**[RELEASE-INDEX.md](../../RELEASE-INDEX.md)** — `ship-asmp`, `sync-asmp-repos`, `check-asmp-coherence`, `polish-asmp-docs`, `polish-asmp-marketing`, `deploy-asmp-site`

@@ -281,15 +281,19 @@ Optional tooling for getting ASMP wired on a machine:
 
 | Path | Purpose |
 |------|---------|
-| `adopt/skills/use-asmp/` | Router skill — delegates to install/discover child skills |
+| `adopt/skills/use-asmp/` | Router skill — host + release delegation |
+| `adopt/skills/use-asmp/INSTALL-INDEX.md` | Host adoption phone book |
+| `adopt/RELEASE-INDEX.md` | Release phone book (ship, deploy, docs, marketing) |
 | `adopt/catalog/agent-tools.yaml` | Living catalog of major AI coding tools |
-| `adopt/scripts/asmp-litmus.sh` | Gate checks: health, capabilities, scan |
+| `adopt/scripts/asmp-litmus.sh` | Host gate: health, capabilities, scan |
+| `adopt/scripts/asmp-coherence-check.sh` | Release gate: repos, live site, API parity |
 | `adopt/scripts/discover-agent-tools.sh` | Refresh agent-tool catalog |
 
-Run litmus:
+Run gates:
 
 ```bash
-./adopt/scripts/asmp-litmus.sh
+./adopt/scripts/asmp-litmus.sh           # host
+./adopt/scripts/asmp-coherence-check.sh   # release
 ```
 
 ## Next Steps
