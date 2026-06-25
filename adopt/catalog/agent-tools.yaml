@@ -1,0 +1,112 @@
+# Living catalog of major AI coding tool surfaces on a host.
+# ASMP continuously discovers which of these are present and wired to :7700.
+# Update this file when a new agent runtime ships; scanners read it — do not hardcode in skills.
+
+asmp: "0.1"
+kind: catalog
+name: agent-tools
+description: Major AI coding tools that should discover the local ASMP registry
+version: "0.1.0"
+updated: "2026-06-25"
+
+# MCP bridge — same server for all runtimes unless noted
+registry_mcp:
+  server_name: asmp-registry
+  command: python3
+  args:
+    - "{director_daemon_mcp}/server.py"
+  director_daemon_mcp: ~/repos-personal/aic-director-daemon/mcp_server
+  tools:
+    - service_list
+    - service_find
+    - service_health
+    - service_register
+
+tools:
+  - id: cursor
+    name: Cursor
+    priority: P0
+    detect:
+      - path: ~/.cursor/mcp.json
+      - app: /Applications/Cursor.app
+    config:
+      scope: global
+      file: ~/.cursor/mcp.json
+      mcp_key: mcpServers
+      expected_server: asmp-registry
+    install_skill: install-asmp-mcp-cursor
+    litmus: service_list via MCP or curl :7700/health from agent session
+    notes: Reload Cursor after editing global MCP config.
+
+  - id: claude-code
+    name: Claude Code
+    priority: P0
+    detect:
+      - path: ~/.claude/settings.json
+      - binary: claude
+    config:
+      scope: global
+      file: ~/.claude/settings.json
+      mcp_key: mcpServers
+      expected_server: asmp-registry
+    install_skill: install-asmp-mcp-claude
+    litmus: service_find(capability=email.classify) or equivalent
+    notes: Merge — never overwrite unrelated mcpServers entries.
+
+  - id: codex
+    name: Codex
+    priority: P0
+    detect:
+      - path: ~/.codex/config.toml
+    config:
+      scope: global
+      file: ~/.codex/config.toml
+      mcp_key: mcp_servers.asmp_registry
+      expected_server: asmp-registry
+      toml_section: "[mcp_servers.asmp_registry]"
+    install_skill: install-asmp-mcp-codex
+    litmus: MCP connects; registry tools callable
+    notes: TOML format differs from JSON — use child skill, do not copy Cursor snippet.
+
+  - id: grok
+    name: Grok (Cursor Build / xAI)
+    priority: P1
+    detect:
+      - path: ~/.grok/skills
+      - path: .grok/skills
+    config:
+      scope: project_and_user
+      files:
+        - .mcp.json
+        - ~/.grok/settings.json
+      expected_server: director-daemon
+      alt_server_names: [asmp-registry, director-daemon]
+    install_skill: install-asmp-mcp-grok
+    litmus: asmp-registry or director-daemon in session MCP; use-asmp skill loadable
+    notes: May use project .mcp.json; director-daemon and asmp-registry are equivalent bridges.
+
+  - id: windsurf
+    name: Windsurf
+    priority: P2
+    detect:
+      - path: ~/.codeium/windsurf/mcp_config.json
+    config:
+      scope: global
+      file: ~/.codeium/windsurf/mcp_config.json
+      mcp_key: mcpServers
+      expected_server: asmp-registry
+    install_skill: install-asmp-mcp-windsurf
+    litmus: TBD — verify when Windsurf present on host
+    status: catalog_entry
+
+  - id: shell-http
+    name: Shell / HTTP fallback
+    priority: P0
+    detect:
+      - always: true
+    config:
+      scope: universal
+      api: http://127.0.0.1:7700
+    install_skill: install-asmp-host
+    litmus: curl -s http://127.0.0.1:7700/health returns JSON
+    notes: Works in any agent with shell; no MCP required.

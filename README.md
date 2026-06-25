@@ -71,11 +71,21 @@ observability:
   metrics: http://127.0.0.1:9090
 ```
 
+## Lean core vs adoption layer
+
+| Layer | Location | What it is |
+|-------|----------|------------|
+| **Lean spec** | This README + [agentservicemanifest.io](https://asmp.eidosagi.com/docs) | Host profile, service manifest, registration API |
+| **Adoption** | `adopt/` in this repo | Skills, agent-tool catalog, litmus scripts — not part of the protocol |
+
+Software authors ship `asmp.yaml` at repo root. The host registry scans configured paths and syncs into `~/.asmp/services/`. See [ship with software](https://asmp.eidosagi.com/docs/spec/ship-with-software).
+
 ## Part 2: Service Manifest
 
-A YAML file per service, written by the agent that built it. Lives in `~/.asmp/services/`.
+A YAML file per service. **Ships with the code** (`asmp.yaml` at repo root). The host index lives in `~/.asmp/services/`.
 
-**File:** `~/.asmp/services/email-daemon.asmp.yaml`
+**Source:** `~/repos/my-service/asmp.yaml`  
+**Index:** `~/.asmp/services/email-daemon.asmp.yaml`
 
 ```yaml
 asmp: "0.1"
@@ -190,6 +200,9 @@ A localhost HTTP API that agents use to register, discover, and manage services.
 
 ```
 POST   /services              Register a new service (submit manifest)
+POST   /services/announce     Handshake register (returns ack)
+POST   /discover/scan         Scan shipped asmp.yaml files into index
+POST   /reload                Re-read index from disk
 GET    /services              List all registered services
 GET    /services/{name}       Get a specific service manifest + runtime state
 PATCH  /services/{name}       Update a manifest
@@ -262,10 +275,27 @@ DELETE /services/{name}/mods/{mod}  Detach a mod
 | Manual Caddyfile edits | Generated from ASMP endpoint declarations |
 | Two registries that drift | One directory of manifests, many consumers |
 
+## Adoption layer (`adopt/`)
+
+Optional tooling for getting ASMP wired on a machine:
+
+| Path | Purpose |
+|------|---------|
+| `adopt/skills/use-asmp/` | Router skill — delegates to install/discover child skills |
+| `adopt/catalog/agent-tools.yaml` | Living catalog of major AI coding tools |
+| `adopt/scripts/asmp-litmus.sh` | Gate checks: health, capabilities, scan |
+| `adopt/scripts/discover-agent-tools.sh` | Refresh agent-tool catalog |
+
+Run litmus:
+
+```bash
+./adopt/scripts/asmp-litmus.sh
+```
+
 ## Next Steps
 
 1. **JSON Schema** — formalize the manifest schema so agents can validate before submitting
-2. **Reference implementation** — the registration API server (Python, runs on localhost)
-3. **Reeves migration** — convert all 35+ services to ASMP manifests
+2. **Reference implementation** — registration API + scan loop (live in `aic-director-daemon`)
+3. **Reeves migration** — convert all 35+ services to shipped `asmp.yaml`
 4. **Eidos package** — extract as open-source, framework-agnostic package
 5. **MCP bridge** — auto-generate MCP tool manifests from ASMP service capabilities
