@@ -74,6 +74,13 @@ Promote later: author `asmp.yaml` → `asmp scan` or `asmp announce`.
 3. Stale in-memory registry? `asmp scan` or `POST /discover/scan`
 4. New repo? Run `asmp scan` before `service_find`
 
+## Boundary habit
+
+When multiple services look plausible, do not trust rank #1 blindly. Read manifest
+evidence (`owns`, `supports`, `aliases`, `anti_routes`, examples). If candidates
+are still close, apply host routing policy. See `use-asmp` → Boundary habit and
+https://asmp.eidosagi.com/docs/concepts/routing-boundaries
+
 ## Habit
 
 Run during `/pre-flight` and `/takeoff`:
