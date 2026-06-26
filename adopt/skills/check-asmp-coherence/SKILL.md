@@ -57,9 +57,9 @@ curl -sL https://asmp.eidosagi.com/docs/guides/cli | rg -c "asmp litmus"
 
 ```bash
 curl -fsSL -o /dev/null -w "%{http_code}\n" \
-  https://raw.githubusercontent.com/agent-service-manifest-protocol/agentservicemanifest.io/main/scripts/bootstrap-asmp.sh
+  https://raw.githubusercontent.com/agent-service-manifest-protocol/agent-service-manifest-protocol/main/scripts/bootstrap-asmp.sh
 curl -fsSL -o /dev/null -w "%{http_code}\n" \
-  https://raw.githubusercontent.com/agent-service-manifest-protocol/agentservicemanifest.io/main/scripts/asmp
+  https://raw.githubusercontent.com/agent-service-manifest-protocol/agent-service-manifest-protocol/main/scripts/asmp
 ```
 
 Both must return `200`.

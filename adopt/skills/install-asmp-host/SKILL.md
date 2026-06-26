@@ -20,7 +20,7 @@ launchctl list | rg director-daemon
 ## Bootstrap fallback
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agent-service-manifest-protocol/agentservicemanifest.io/main/scripts/bootstrap-asmp.sh | bash
+curl -fsSL https://raw.githubusercontent.com/agent-service-manifest-protocol/agent-service-manifest-protocol/main/scripts/bootstrap-asmp.sh | bash
 ```
 
 Creates `~/.asmp/host.yaml`, `~/.asmp/services/`, installs `~/.asmp/bin/asmp-serve.py`, starts `:7700`.

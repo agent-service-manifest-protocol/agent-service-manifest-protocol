@@ -51,7 +51,7 @@ These files ship together from `agentservicemanifest.io/scripts/`:
 - `asmp-serve.py`
 - `asmp`
 
-Verify bootstrap curls all three to `raw.githubusercontent.com/.../agentservicemanifest.io/main/scripts/`.
+Verify bootstrap curls all three to `raw.githubusercontent.com/.../agent-service-manifest-protocol/main/scripts/`.
 
 ### 4. Adopt skills
 

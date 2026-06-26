@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+"""ASMP CLI — query and manage the local service registry on :7700.
+
+Usage:
+  asmp health
+  asmp list [--section tools] [--healthy] [-q email]
+  asmp find --capability email.ingest
+  asmp scan
+  asmp todo <name> --note "what it is"
+  asmp todos
+  asmp litmus
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+DEFAULT_REGISTRY = "http://127.0.0.1:7700"
+HOST_FILE = Path.home() / ".asmp" / "host.yaml"
+DISCOVERIES_FILE = Path.home() / ".asmp" / "discoveries.jsonl"
+
+
+def registry_url() -> str:
+    env = os.environ.get("ASMP_REGISTRY_URL")
+    if env:
+        return env.rstrip("/")
+    if HOST_FILE.exists():
+        try:
+            import yaml
+
+            with HOST_FILE.open() as f:
+                host = yaml.safe_load(f) or {}
+            api = (host.get("registry") or {}).get("api")
+            if api:
+                return str(api).rstrip("/")
+        except Exception:
+            pass
+    return DEFAULT_REGISTRY
+
+
+def request(
+    method: str,
+    path: str,
+    *,
+    body: Optional[dict] = None,
+    params: Optional[dict[str, str]] = None,
+) -> Any:
+    base = registry_url()
+    url = f"{base}{path}"
+    if params:
+        qs = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
+        if qs:
+            url = f"{url}?{qs}"
+    data = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode()
+        try:
+            parsed = json.loads(detail)
+            msg = parsed.get("error", detail)
+        except json.JSONDecodeError:
+            msg = detail or str(e)
+        raise SystemExit(f"HTTP {e.code}: {msg}") from e
+    except urllib.error.URLError as e:
+        raise SystemExit(f"Registry unreachable at {base}: {e.reason}") from e
+
+
+def load_manifest(path: Path) -> dict:
+    if not path.exists():
+        raise SystemExit(f"Manifest not found: {path}")
+    try:
+        import yaml
+    except ImportError as e:
+        raise SystemExit("pyyaml required: python3 -m pip install --user pyyaml") from e
+    with path.open() as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise SystemExit(f"Invalid manifest: {path}")
+    return data
+
+
+def emit(data: Any, *, json_out: bool) -> None:
+    if json_out:
+        print(json.dumps(data, indent=2, default=str))
+        return
+    if isinstance(data, dict):
+        for key, value in data.items():
+            print(f"{key}: {value}")
+    elif isinstance(data, list):
+        for item in data:
+            print(item)
+    else:
+        print(data)
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    emit(request("GET", "/health"), json_out=args.json)
+    return 0
+
+
+def cmd_host(args: argparse.Namespace) -> int:
+    emit(request("GET", "/host"), json_out=args.json)
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    params: dict[str, str] = {}
+    if args.section:
+        params["section"] = args.section
+    if args.query:
+        params["q"] = args.query
+    if args.healthy:
+        params["healthy"] = "true"
+    data = request("GET", "/services", params=params or None)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    if not data:
+        print("No services found.")
+        return 0
+    by_section: dict[str, list] = {}
+    for entry in data:
+        sec = entry.get("section", "other")
+        by_section.setdefault(sec, []).append(entry)
+    total = len(data)
+    print(f"Services ({total})")
+    for sec in sorted(by_section):
+        items = by_section[sec]
+        print(f"\n{sec.upper()} ({len(items)})")
+        for e in sorted(items, key=lambda x: x.get("name", "")):
+            healthy = e.get("healthy")
+            mark = "✓" if healthy else "✗" if e.get("last_check") else "?"
+            name = e.get("name", "?")
+            desc = (e.get("description") or "")[:60]
+            sync = e.get("sync")
+            status = e.get("status")
+            tags = [t for t in (sync, status) if t]
+            extra = f" [{', '.join(tags)}]" if tags else ""
+            print(f"  {mark} {name}: {desc}{extra}")
+    return 0
+
+
+def _discovery_hint(target: str) -> None:
+    print(
+        f"\nIf '{target}' is real but undocumented, leave a breadcrumb so the gap self-heals\n"
+        f"(the next agent's lookup will succeed):\n"
+        f"  asmp todo {target} --note \"what it is\" [--repo PATH] [--hint \"how to reach it\"]"
+    )
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    try:
+        data = request("GET", f"/services/{args.name}")
+    except SystemExit as e:
+        msg = str(e)
+        print(msg)
+        if "404" in msg or "not found" in msg.lower():
+            _discovery_hint(args.name)
+        return 1
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    print(f"## {data.get('name')}")
+    for key in (
+        "description",
+        "section",
+        "healthy",
+        "status",
+        "sync",
+        "source",
+        "last_seen",
+        "generation",
+        "provides",
+        "error",
+    ):
+        if key in data and data[key] is not None:
+            val = data[key]
+            if isinstance(val, list):
+                val = ", ".join(val)
+            print(f"  {key}: {val}")
+    return 0
+
+
+def cmd_find(args: argparse.Namespace) -> int:
+    if args.capability:
+        data = request("GET", "/capabilities", params={"provides": args.capability})
+    elif args.query:
+        data = request("GET", "/services", params={"q": args.query})
+    else:
+        raise SystemExit("Provide --capability or --query")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    if not data:
+        target = args.capability or args.query
+        print(f"No services match '{target}'.")
+        _discovery_hint(target)
+        return 1
+    print(f"Found {len(data)} service(s)")
+    for e in data:
+        healthy = e.get("healthy")
+        mark = "✓" if healthy else "✗" if e.get("last_check") else "?"
+        print(f"\n{mark} {e.get('name')}")
+        print(f"  {e.get('description', '')}")
+        provides = e.get("provides") or (e.get("capabilities") or {}).get("provides")
+        if provides:
+            print(f"  provides: {', '.join(provides)}")
+        if e.get("source"):
+            print(f"  source: {e['source']}")
+    return 0
+
+
+def cmd_caps(args: argparse.Namespace) -> int:
+    params = {"provides": args.provides} if args.provides else None
+    data = request("GET", "/capabilities", params=params)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    if args.provides:
+        if not data:
+            print(f"No services provide '{args.provides}'.")
+            _discovery_hint(args.provides)
+            return 1
+        for e in data:
+            print(f"{e.get('name')}: {e.get('description', '')}")
+        return 0
+    caps = data.get("capabilities", [])
+    for cap in caps:
+        print(cap)
+    return 0
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    data = request("POST", "/discover/scan")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    print("Discovery scan complete")
+    for key in ("scanned", "registered", "updated", "skipped", "stale"):
+        print(f"  {key}: {data.get(key, 0)}")
+    return 0
+
+
+def cmd_reload(args: argparse.Namespace) -> int:
+    data = request("POST", "/reload")
+    emit(data, json_out=args.json)
+    return 0
+
+
+def cmd_announce(args: argparse.Namespace) -> int:
+    manifest = load_manifest(Path(args.manifest))
+    data = request("POST", "/services/announce", body=manifest)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    print(f"Announced {data.get('name')} (generation {data.get('generation')})")
+    print(f"  {data.get('index_url')}")
+    return 0
+
+
+def cmd_register(args: argparse.Namespace) -> int:
+    manifest = load_manifest(Path(args.manifest))
+    data = request("POST", "/services", body=manifest)
+    emit(data, json_out=args.json)
+    return 0
+
+
+def cmd_litmus(args: argparse.Namespace) -> int:
+    checks = [
+        ("health", lambda: request("GET", "/health")),
+        ("host", lambda: request("GET", "/host")),
+        ("services", lambda: request("GET", "/services")),
+        ("capabilities", lambda: request("GET", "/capabilities")),
+        ("email.ingest", lambda: request("GET", "/capabilities", params={"provides": "email.ingest"})),
+        ("discover scan", lambda: request("POST", "/discover/scan")),
+    ]
+    passed = 0
+    failed = 0
+    print(f"ASMP litmus — {registry_url()}\n")
+    for name, fn in checks:
+        print(f"→ {name}")
+        try:
+            result = fn()
+            if name == "email.ingest" and not result:
+                raise RuntimeError("no matches")
+            print("  ✓ PASS")
+            passed += 1
+        except Exception as e:
+            print(f"  ✗ FAIL ({e})")
+            failed += 1
+    print(f"\nResults: {passed} passed, {failed} failed")
+    if args.json:
+        print(json.dumps({"passed": passed, "failed": failed}))
+    return 1 if failed else 0
+
+
+def _load_discoveries() -> list:
+    if not DISCOVERIES_FILE.exists():
+        return []
+    out = []
+    for line in DISCOVERIES_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    return out
+
+
+def _append_discovery_local(rec: dict) -> None:
+    DISCOVERIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DISCOVERIES_FILE.open("a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def cmd_todo(args: argparse.Namespace) -> int:
+    """Drop a discovery note: an agent/AI system seen in the wild but not yet discoverable in ASMP."""
+    body = {
+        "name": args.name,
+        "note": args.note or "",
+        "repo": args.repo or "",
+        "hint": args.hint or "",
+        "found_by": args.found_by or "agent",
+    }
+    local_fallback = False
+    try:
+        rec = request("POST", "/discoveries", body=body)
+    except SystemExit:
+        local_fallback = True
+        rec = {
+            **body,
+            "discovered_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "status": "todo",
+        }
+        _append_discovery_local(rec)
+    if args.json:
+        print(json.dumps(rec, indent=2))
+    elif local_fallback:
+        print(f"✓ discovery noted locally (registry down): {args.name} ({DISCOVERIES_FILE})")
+    else:
+        print(
+            f"✓ discovery noted: {args.name} — promote it with a manifest + `asmp announce` "
+            f"({DISCOVERIES_FILE})"
+        )
+    return 0
+
+
+def _print_pending_discoveries(pending: list, *, json_out: bool) -> int:
+    if json_out:
+        print(json.dumps(pending, indent=2))
+        return 0
+    if not pending:
+        print("No pending discoveries — registry is current.")
+        return 0
+    print(f"{len(pending)} discovery todo(s) — seen but not yet registered:\n")
+    for d in pending:
+        print(f"  • {d['name']}  [{d.get('found_by','?')} · {d.get('discovered_at','')[:10]}]")
+        if d.get("note"):
+            print(f"      {d['note']}")
+        if d.get("repo"):
+            print(f"      repo: {d['repo']}")
+        if d.get("hint"):
+            print(f"      hint: {d['hint']}")
+    return 0
+
+
+def cmd_todos(args: argparse.Namespace) -> int:
+    """List discovery notes for agents/systems seen but not yet registered."""
+    try:
+        data = request("GET", "/discoveries", params={"pending": "true"})
+        pending = data.get("discoveries", data if isinstance(data, list) else [])
+        return _print_pending_discoveries(pending, json_out=args.json)
+    except SystemExit:
+        discoveries = _load_discoveries()
+        registered = set()
+        try:
+            with urllib.request.urlopen(registry_url() + "/services", timeout=5) as r:
+                registered = {s.get("name") for s in json.load(r)}
+        except Exception:
+            pass
+        pending = [d for d in discoveries if d.get("name") not in registered]
+        if not args.json:
+            print("(registry unreachable — showing local discoveries.jsonl)\n")
+        return _print_pending_discoveries(pending, json_out=args.json)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="asmp",
+        description="ASMP CLI — local service registry on :7700",
+        epilog=(
+            "AGENT PROTOCOL: if you discover an agent or AI system that ASMP can't find yet\n"
+            "(a real service with no manifest), drop a note so the gap self-heals:\n"
+            "  asmp todo <name> --note \"what it is\" [--repo PATH] [--hint \"how to register/reach it\"]\n"
+            "A later pass promotes it to a real manifest. See AGENTS.md."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--json", action="store_true", help="Emit JSON")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("health", help="Registry health summary").set_defaults(func=cmd_health)
+    sub.add_parser("host", help="Show host profile").set_defaults(func=cmd_host)
+
+    list_p = sub.add_parser("list", help="List registered services")
+    list_p.add_argument("--section", help="Filter by section")
+    list_p.add_argument("--healthy", action="store_true", help="Healthy only")
+    list_p.add_argument("-q", "--query", help="Search name/description/capability")
+    list_p.set_defaults(func=cmd_list)
+
+    get_p = sub.add_parser("get", help="Get one service")
+    get_p.add_argument("name")
+    get_p.set_defaults(func=cmd_get)
+
+    find_p = sub.add_parser("find", help="Find services")
+    find_p.add_argument("--capability", "-c", help="Capability to match")
+    find_p.add_argument("--query", "-q", help="Search query")
+    find_p.set_defaults(func=cmd_find)
+
+    caps_p = sub.add_parser("caps", help="List or query capabilities")
+    caps_p.add_argument("--provides", help="Filter by capability")
+    caps_p.set_defaults(func=cmd_caps)
+
+    sub.add_parser("scan", help="Scan shipped asmp.yaml into index").set_defaults(func=cmd_scan)
+    sub.add_parser("reload", help="Reload index from disk").set_defaults(func=cmd_reload)
+
+    ann = sub.add_parser("announce", help="Handshake register from manifest file")
+    ann.add_argument("manifest", help="Path to asmp.yaml")
+    ann.set_defaults(func=cmd_announce)
+
+    reg = sub.add_parser("register", help="Register from manifest file")
+    reg.add_argument("manifest", help="Path to manifest YAML")
+    reg.set_defaults(func=cmd_register)
+
+    sub.add_parser("litmus", help="Run gate checks").set_defaults(func=cmd_litmus)
+
+    todo_p = sub.add_parser("todo", help="Drop a discovery note for an undocumented agent/service")
+    todo_p.add_argument("name", help="Name of the agent/service that isn't discoverable yet")
+    todo_p.add_argument("--note", help="What it is / what you observed")
+    todo_p.add_argument("--repo", help="Repo or path where it lives, if known")
+    todo_p.add_argument("--hint", help="How to register or reach it")
+    todo_p.add_argument("--found-by", dest="found_by", help="Who found it (agent id / human)")
+    todo_p.set_defaults(func=cmd_todo)
+
+    todos_p = sub.add_parser("todos", help="List discovery notes not yet registered")
+    todos_p.set_defaults(func=cmd_todos)
+    return p
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
+    json_out = "--json" in argv
+    if json_out:
+        argv = [a for a in argv if a != "--json"]
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args.json = json_out or getattr(args, "json", False)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -53,7 +53,7 @@ curl -sL -o /dev/null -w "%{http_code}\n" https://asmp.eidosagi.com/docs/install
 
 # Bootstrap scripts (GitHub raw — independent of Pages, but verify on release)
 curl -fsSL -o /dev/null -w "%{http_code}\n" \
-  https://raw.githubusercontent.com/agent-service-manifest-protocol/agentservicemanifest.io/main/scripts/bootstrap-asmp.sh
+  https://raw.githubusercontent.com/agent-service-manifest-protocol/agent-service-manifest-protocol/main/scripts/bootstrap-asmp.sh
 ```
 
 All HTTP codes should be `200`.
