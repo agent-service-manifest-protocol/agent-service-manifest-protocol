@@ -459,6 +459,8 @@ def _oracle_rank_roles(question: str, candidates: list[dict]) -> list[dict]:
         if any_trigger_match and not trigger_hits:
             continue
         score = len(trigger_hits) * 2 + len(service_hits)
+        if role == "finance" and q_tokens & {"accounting", "ap", "ar", "bill", "books", "expense", "invoice", "payment", "spend"}:
+            score += 10
         if role == "security" and q_tokens & {"acceptable", "approve", "decide", "risk"}:
             score += 10
         if score:

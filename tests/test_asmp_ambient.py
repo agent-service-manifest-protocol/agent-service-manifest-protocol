@@ -184,3 +184,44 @@ def test_eidos_oracle_uses_asmp_candidates(monkeypatch):
     assert "it" in roles
     assert "security" in roles
     assert "finance" not in roles
+
+
+def test_eidos_oracle_adapts_to_greenmark_scope_for_books_question(monkeypatch):
+    asmp = load_asmp()
+    services = [
+        {
+            "name": "greenmark-penny",
+            "description": "Owns Greenmark accounting intelligence and book-backed vendor inference",
+            "capabilities": {
+                "provides": [
+                    "greenmark.accounting.answer",
+                    "greenmark.accounting.ap-vendor-investigation",
+                ]
+            },
+            "status": "registered",
+        },
+        {
+            "name": "greenmark-cypher",
+            "description": "Owns Greenmark IT operations, MSP routing, and provenance-backed admin paths",
+            "capabilities": {
+                "provides": [
+                    "greenmark.it.operations",
+                    "greenmark.it.msp-routing",
+                ]
+            },
+            "status": "registered",
+        },
+    ]
+    monkeypatch.setattr(asmp, "request", lambda *_args, **_kwargs: services)
+
+    data = run_json(asmp, "oracle", "what do the books imply about this IT vendor?")
+
+    assert data["product"] == "Eidos Oracle"
+    assert data["registry_state"] == "registry_ok"
+    assert data["primary_owner"] == "greenmark-penny"
+    assert [role["role"] for role in data["role_hypotheses"][:2]] == ["finance", "it"]
+    assert data["supporting_roles"] == ["it"]
+    assert {candidate["name"] for candidate in data["candidate_services"]} >= {
+        "greenmark-penny",
+        "greenmark-cypher",
+    }
