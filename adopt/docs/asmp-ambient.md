@@ -97,6 +97,27 @@ The host should prefer JSON mode:
 }
 ```
 
+## Host Adapter Contract
+
+Host adapters are optional consumers of Ambient. Codex, Eidos CLI, Cerebro, and
+other agent hosts may call Ambient, but none of them is the canonical home of
+ASMP, Ambient, or Eidos Oracle.
+
+The adapter contract is:
+
+- call Ambient at host lifecycle boundaries;
+- inject only the bounded `context` returned by JSON mode;
+- treat Eidos Oracle as advisory mission-contract help, never as an executor;
+- keep specialist agents and human approvers as the authority for scoped or
+  risky work.
+
+Canonical flow:
+
+```text
+ASMP registry/router -> Ambient hint -> Eidos Oracle mission contract
+  -> specialist role -> human approval when risk requires it
+```
+
 ## Tests
 
 ```bash

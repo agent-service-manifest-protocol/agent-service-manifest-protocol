@@ -44,6 +44,8 @@ def test_session_start_emits_small_context_without_registry_call(monkeypatch):
     assert "ASMP-aware local service discovery" in data["context"]
     assert "Eidos Oracle" in data["context"]
     assert "asmp oracle '<question>'" in data["context"]
+    assert "Oracle plans mission contracts; specialists execute; humans approve risky actions." in data["context"]
+    assert "Eidos CLI" not in data["context"]
     assert "raw manifests" in data["context"]
 
 
@@ -73,6 +75,8 @@ def test_user_prompt_submit_injects_for_oracle_worthy_prompt(monkeypatch):
     assert data["injected"] is True
     assert "Eidos Oracle" in data["context"]
     assert "asmp oracle '<question>'" in data["context"]
+    assert "Oracle plans mission contracts; specialists execute; humans approve risky actions." in data["context"]
+    assert "Eidos CLI" not in data["context"]
 
 
 def test_user_override_disables_ambient(monkeypatch):
@@ -170,6 +174,7 @@ def test_eidos_oracle_contract_works_without_registry():
     assert data["should_invoke_oracle"] is True
     assert "approval_boundaries" in data
     assert "do not execute the mission from Oracle" in data["approval_boundaries"]
+    assert data["primary_owner"] != "Eidos Oracle"
     assert data["evidence_required"]
 
 

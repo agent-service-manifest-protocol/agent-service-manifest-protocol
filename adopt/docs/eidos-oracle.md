@@ -83,15 +83,18 @@ ASMP and the specialist services.
 
 ```mermaid
 flowchart LR
-  U["User ask"] --> A["ASMP router"]
-  A -->|high-confidence owner| S["Specialist service"]
-  A -->|ambiguous or high-stakes| O["Eidos Oracle"]
+  U["User ask"] --> A["ASMP registry/router"]
+  A --> M["Ambient hint"]
+  M -->|ambiguous, cross-role, high-stakes, or low-confidence| O["Eidos Oracle"]
+  M -->|clear owner| S["Specialist role"]
   O --> C["Mission contract"]
-  C --> A
-  A --> S
-  S --> E["Evidence packet"]
-  E --> H["Human authority / approval boundary"]
+  C --> S
+  S --> H["Human approval when risk requires it"]
 ```
+
+Host adapters such as Codex, Eidos CLI, and Cerebro may call Ambient and pass
+bounded hints into their own context windows. They are consumers of this
+contract, not the canonical home of Oracle.
 
 ## CLI Prototype
 
@@ -113,6 +116,7 @@ asmp --json oracle --no-registry "where are credentials stored?"
   authority.
 - Oracle should not retrieve secrets, change state, contact external parties, or
   silently answer high-stakes questions.
+- Oracle should not live inside a single host adapter such as Eidos CLI.
 - Oracle should not be invoked on every prompt.
 
 ## Product Boundary
