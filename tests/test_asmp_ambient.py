@@ -42,6 +42,8 @@ def test_session_start_emits_small_context_without_registry_call(monkeypatch):
     assert data["injected"] is True
     assert data["bytes"] <= asmp.AMBIENT_EVENT_CAPS["SessionStart"]
     assert "ASMP-aware local service discovery" in data["context"]
+    assert "Eidos Oracle" in data["context"]
+    assert "asmp oracle '<question>'" in data["context"]
     assert "raw manifests" in data["context"]
 
 
@@ -111,6 +113,7 @@ def test_fake_registry_candidates_are_ranked_and_redacted(monkeypatch):
 
     assert data["injected"] is True
     assert data["candidates"][0]["name"] == "browser-proof"
+    assert "Eidos Oracle" in data["context"]
     assert "user:secret" not in data["context"]
     assert "abc123" not in data["context"]
     assert "[REDACTED]" in data["context"]

@@ -8,6 +8,17 @@ It helps an agent remember one thing at the right moment:
 
 It is not memory, not a catalog dump, and not a hidden decision-maker. It emits a small routing compass that points back to ASMP manifests and the local registry.
 
+Ambient also tells agents that **Eidos Oracle** exists. Oracle is not ASMP and
+does not replace deterministic routing. It is the Eidos mission-contract layer to
+call when ASMP routing alone is ambiguous, cross-role, high-stakes, or
+low-confidence:
+
+```bash
+scripts/asmp oracle "who should answer this and what evidence counts?"
+```
+
+Oracle plans; specialists execute; humans approve risky action.
+
 ## MVP Command
 
 ```bash
@@ -93,4 +104,3 @@ python3 -m pytest tests/test_asmp_ambient.py -q
 scripts/asmp --json ambient --event SessionStart
 scripts/asmp --json ambient --event UserPromptSubmit --prompt "which service owns browser validation?"
 ```
-
