@@ -80,6 +80,18 @@ observability:
 
 Software authors ship `asmp.yaml` at repo root. The host registry scans configured paths and syncs into `~/.asmp/services/`. See [ship with software](https://asmp.eidosagi.com/docs/spec/ship-with-software).
 
+The adoption layer also includes **ASMP Ambient**, a tiny lifecycle-context shim
+for agent hosts. Ambient reminds agents to ask the local ASMP registry before
+guessing tools, ports, repos, or service owners. See
+[`adopt/docs/asmp-ambient.md`](adopt/docs/asmp-ambient.md).
+
+The adoption/product layer now also includes **Eidos Oracle**, a deliberative
+mission-contract layer that uses ASMP registry context when deterministic
+routing is ambiguous, cross-role, low-confidence, or high-stakes. Oracle is not
+the lean ASMP protocol core; it is the Eidos product that interprets what ASMP
+ambient and service manifests imply for answering a question well. See
+[`adopt/docs/eidos-oracle.md`](adopt/docs/eidos-oracle.md).
+
 ## Part 2: Service Manifest
 
 A YAML file per service. **Ships with the code** (`asmp.yaml` at repo root). The host index lives in `~/.asmp/services/`.

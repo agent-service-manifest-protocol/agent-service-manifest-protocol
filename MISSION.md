@@ -73,6 +73,19 @@ Single maintainer. Proving the spec against 35+ real services in the Reeves ecos
 - [ ] Service registered via ASMP automatically discoverable as MCP tools
 - [ ] Bidirectional: MCP servers can declare themselves via ASMP
 
+### Slice 7.5: Eidos Oracle
+**Status: PROTOTYPE**
+
+- [x] Define Eidos Oracle as the deliberative product layer that consumes ASMP
+      registry context and emits mission contracts.
+- [x] Add `asmp oracle` CLI prototype for ambiguous, cross-role,
+      low-confidence, and high-stakes questions.
+- [x] Document Oracle as Eidos married to ASMP, not as the lean protocol core.
+- [ ] Back Oracle with live LLM planning and policy-controlled ambient context.
+- [ ] Add persistent learning loop from resolved contracts back into manifests,
+      routing policy, and evals.
+- [ ] Expose Oracle through Eidos CLI as the product entrypoint.
+
 ### Slice 8: Docs Site
 **Status: NOT STARTED**
 

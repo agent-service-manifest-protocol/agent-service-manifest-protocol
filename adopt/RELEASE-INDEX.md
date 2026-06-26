@@ -16,6 +16,12 @@ For host adoption, see [INSTALL-INDEX.md](skills/use-asmp/INSTALL-INDEX.md).
 | [polish-asmp-marketing](skills/polish-asmp-marketing/SKILL.md) | Homepage feels technical, animation wrong | Human story visible on live `/` |
 | [deploy-asmp-site](skills/deploy-asmp-site/SKILL.md) | Push docs/marketing to production | Live URLs return 200; key copy present |
 
+## Product layer
+
+Eidos Oracle is documented in [adopt/docs/eidos-oracle.md](docs/eidos-oracle.md).
+It is an Eidos product layer on top of ASMP, not lean protocol core. Use it when
+deterministic ASMP routing needs deliberative mission-contract planning.
+
 ## Repos (canonical paths)
 
 | Repo | Role | Remote |
