@@ -317,7 +317,7 @@ def _ambient_disabled(prompt: str = "") -> tuple[bool, str]:
 
 def _ambient_prompt_matches(prompt: str) -> bool:
     low = prompt.lower()
-    return any(word in low for word in AMBIENT_TRIGGER_WORDS)
+    return any(word in low for word in AMBIENT_TRIGGER_WORDS + ORACLE_TRIGGER_WORDS)
 
 
 def _redact_text(value: str) -> str:

@@ -57,6 +57,24 @@ def test_user_prompt_submit_ignores_unrelated_prompt(monkeypatch):
     assert data["reason"] == "prompt_not_asmp_relevant"
 
 
+def test_user_prompt_submit_injects_for_oracle_worthy_prompt(monkeypatch):
+    asmp = load_asmp()
+    monkeypatch.setattr(asmp, "request", lambda *_args, **_kwargs: [])
+
+    data = run_json(
+        asmp,
+        "ambient",
+        "--event",
+        "UserPromptSubmit",
+        "--prompt",
+        "who should handle this risky Microsoft SSO question?",
+    )
+
+    assert data["injected"] is True
+    assert "Eidos Oracle" in data["context"]
+    assert "asmp oracle '<question>'" in data["context"]
+
+
 def test_user_override_disables_ambient(monkeypatch):
     asmp = load_asmp()
     monkeypatch.setenv("ASMP_AMBIENT", "off")
