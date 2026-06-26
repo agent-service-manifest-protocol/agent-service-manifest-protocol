@@ -39,18 +39,31 @@ AMBIENT_SUMMARY_LIMIT = 180
 AMBIENT_TRIGGER_WORDS = (
     "agent service manifest",
     "asmp",
+    "browser",
     "capability",
     "daemon",
+    "data",
+    "dd5",
     "discover",
     "endpoint",
     "local service",
     "manifest",
     "mcp",
+    "page",
     "plugin",
     "port",
+    "production",
+    "proof",
+    "publish",
+    "qa",
     "registry",
+    "readback",
     "route",
     "service",
+    "ship",
+    "spreadsheet",
+    "supabase",
+    "test",
     "tool",
     "wire",
 )
@@ -357,15 +370,69 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
 
 
+def _meaningful_tokens(text: str) -> set[str]:
+    stop = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "do",
+        "does",
+        "for",
+        "from",
+        "in",
+        "it",
+        "of",
+        "or",
+        "the",
+        "this",
+        "to",
+        "with",
+    }
+    return {token for token in _tokens(text) if len(token) >= 3 and token not in stop}
+
+
+def _phrase_overlap_score(prompt: str, phrase: str) -> float:
+    phrase_tokens = _meaningful_tokens(phrase)
+    if not phrase_tokens:
+        return 0.0
+    prompt_tokens = _meaningful_tokens(prompt)
+    return len(prompt_tokens & phrase_tokens) / len(phrase_tokens)
+
+
 def _service_text(service: dict) -> str:
     bits: list[str] = []
     for key in ("name", "description", "section", "source", "status", "sync"):
         val = service.get(key)
         if val:
             bits.append(str(val))
-    caps = service.get("provides") or (service.get("capabilities") or {}).get("provides") or []
-    if caps:
-        bits.extend(str(c) for c in caps)
+    caps = service.get("capabilities") or {}
+    for cap_key in ("provides", "owns", "supports", "aliases", "anti_routes"):
+        values = service.get(cap_key) or caps.get(cap_key) or []
+        if values:
+            bits.extend(str(c) for c in values)
+    for key in ("positive_examples", "when_not_to_use"):
+        values = service.get(key) or []
+        bits.extend(str(v) for v in values)
+    for item in service.get("negative_examples") or []:
+        if isinstance(item, dict):
+            bits.extend(str(v) for v in item.values())
+        else:
+            bits.append(str(item))
+    return " ".join(bits).lower()
+
+
+def _service_positive_text(service: dict) -> str:
+    bits: list[str] = []
+    for key in ("name", "description", "section", "status", "sync"):
+        val = service.get(key)
+        if val:
+            bits.append(str(val))
+    caps = service.get("capabilities") or {}
+    for cap_key in ("provides", "owns", "supports", "aliases"):
+        values = service.get(cap_key) or caps.get(cap_key) or []
+        bits.extend(str(c) for c in values)
+    bits.extend(str(v) for v in service.get("positive_examples") or [])
     return " ".join(bits).lower()
 
 
@@ -374,25 +441,88 @@ def _score_service(prompt: str, service: dict) -> int:
     score = 0
     name = str(service.get("name") or "").lower()
     desc = str(service.get("description") or "").lower()
+    text = _service_text(service)
+    positive_text = _service_positive_text(service)
     if name and name in low:
         score += 100
     for part in re.split(r"[-_\s]+", name):
         if len(part) >= 3 and part in low:
             score += 8
-    caps = service.get("provides") or (service.get("capabilities") or {}).get("provides") or []
-    for cap in caps:
-        cap_low = str(cap).lower()
-        if cap_low and cap_low in low:
-            score += 40
-        for part in re.split(r"[-_.\s]+", cap_low):
-            if len(part) >= 4 and part in low:
-                score += 6
+    caps = service.get("capabilities") or {}
+    weighted_cap_fields = (
+        ("owns", 70),
+        ("aliases", 55),
+        ("provides", 40),
+        ("supports", 25),
+    )
+    for cap_key, exact_weight in weighted_cap_fields:
+        values = service.get(cap_key) or caps.get(cap_key) or []
+        for cap in values:
+            cap_low = str(cap).lower()
+            cap_phrase = cap_low.replace(".", " ").replace("-", " ").replace("_", " ")
+            if cap_low and (cap_low in low or cap_phrase in low):
+                score += exact_weight
+            for part in re.split(r"[-_.\s]+", cap_low):
+                if len(part) >= 4 and part in low:
+                    score += max(4, exact_weight // 8)
+    for example in service.get("positive_examples") or []:
+        ex = str(example).lower()
+        if ex and ex in low:
+            score += 70
+        score += int(_phrase_overlap_score(low, ex) * 45)
+        for token in _tokens(ex):
+            if len(token) >= 4 and token in low:
+                score += 4
+    for anti in caps.get("anti_routes") or service.get("anti_routes") or []:
+        anti_low = str(anti).lower()
+        anti_phrase = anti_low.replace(".", " ").replace("-", " ").replace("_", " ")
+        if anti_low in low or anti_phrase in low:
+            score -= 80
+    for item in service.get("negative_examples") or []:
+        query = str(item.get("query") if isinstance(item, dict) else item).lower()
+        if query and query in low:
+            score -= 80
+        if _phrase_overlap_score(low, query) >= 0.55:
+            score -= 70
+    if service.get("routing_role") == "owner":
+        score += 12
+    elif service.get("routing_role") == "router":
+        score -= 10
+    prompt_tokens = _meaningful_tokens(low)
+    action_boosts = (
+        (
+            {"test", "qa", "browser", "screenshot", "page", "proof", "validate"},
+            {"browser", "screenshot", "ui proof", "page validation", "protected page", "surfari", "rendered dashboard"},
+            75,
+        ),
+        (
+            {"ship", "publish", "shipment", "dd5", "supabase", "readback", "parity"},
+            {"data ship", "data publication", "supabase", "dd5", "publication batch", "cerebro readback", "batch parity"},
+            90,
+        ),
+        (
+            {"deploy", "release", "production", "pr"},
+            {"release", "production deploy", "pr release", "deploy cerebro", "ship cerebro"},
+            45,
+        ),
+    )
+    for prompt_terms, evidence_terms, boost in action_boosts:
+        if prompt_tokens & prompt_terms and any(term in positive_text for term in evidence_terms):
+            score += boost
+    owns_text = " ".join(str(v).lower() for v in (caps.get("owns") or service.get("owns") or []))
+    read_only_test_terms = {"test", "qa", "browser", "screenshot", "page", "validate"}
+    release_action_terms = {"ship", "deploy", "release", "publish", "shipment"}
+    if (
+        prompt_tokens & read_only_test_terms
+        and not (prompt_tokens & release_action_terms)
+        and any(term in owns_text for term in ("release", "deploy"))
+    ):
+        score -= 120
     for token in re.findall(r"[a-z0-9][a-z0-9_.-]{2,}", low):
         if token in name:
             score += 5
         elif token in desc:
             score += 2
-    text = _service_text(service)
     for trigger in AMBIENT_TRIGGER_WORDS:
         if trigger in low and trigger in text:
             score += 2
@@ -594,7 +724,14 @@ def _oracle_contract(question: str, *, include_registry: bool = True) -> dict:
 
 def _summarize_service(service: dict) -> dict:
     clean = _redact(service)
-    caps = clean.get("provides") or (clean.get("capabilities") or {}).get("provides") or []
+    cap_map = clean.get("capabilities") or {}
+    caps = (
+        clean.get("provides")
+        or cap_map.get("provides")
+        or cap_map.get("owns")
+        or cap_map.get("supports")
+        or []
+    )
     endpoints = clean.get("endpoints") or []
     endpoint = None
     if isinstance(endpoints, list) and endpoints:

@@ -141,6 +141,100 @@ def test_fake_registry_candidates_are_ranked_and_redacted(monkeypatch):
     assert "[REDACTED]" in data["context"]
 
 
+def test_spreadsheet_production_test_routes_to_surfari(monkeypatch):
+    asmp = load_asmp()
+    services = [
+        {
+            "name": "cerebro-surfari",
+            "description": "Runs browser-rendered Cerebro QA, screenshots, protected-page proof, and UI validation.",
+            "capabilities": {
+                "owns": ["greenmark.browser.qa", "cerebro.ui.proof", "cerebro.protected.page.validation"],
+                "aliases": ["browser QA", "test Cerebro page", "rendered dashboard validation"],
+                "anti_routes": ["greenmark.data.ship", "cerebro.production.deploy"],
+            },
+            "positive_examples": ["test browser screenshots", "prove the page renders", "validate a protected Cerebro page"],
+            "status": "registered",
+        },
+        {
+            "name": "cerebro-designer",
+            "description": "Design Cerebro pages with brand consistency, density, and proof-first UX.",
+            "capabilities": {"provides": ["greenmark.skill.design-cerebro"]},
+            "status": "registered",
+        },
+        {
+            "name": "cerebro-shipr",
+            "description": "Ships Cerebro application changes with production/deploy evidence, branch discipline, and release proof.",
+            "routing_role": "owner",
+            "capabilities": {
+                "owns": ["cerebro.release.ship", "cerebro.production.deploy", "cerebro.production.proof"],
+                "supports": ["cerebro.ui.proof"],
+                "aliases": ["ship cerebro", "deploy cerebro", "prove production"],
+            },
+            "positive_examples": ["ship Cerebro to production", "prove the Cerebro deploy"],
+            "status": "registered",
+        },
+    ]
+    monkeypatch.setattr(asmp, "request", lambda *_args, **_kwargs: services)
+
+    data = run_json(
+        asmp,
+        "ambient",
+        "--event",
+        "UserPromptSubmit",
+        "--prompt",
+        "test the Cerebro spreadsheet page in production",
+    )
+
+    assert data["injected"] is True
+    assert data["candidates"][0]["name"] == "cerebro-surfari"
+
+
+def test_dd5_supabase_shipment_routes_to_data_shipper(monkeypatch):
+    asmp = load_asmp()
+    services = [
+        {
+            "name": "cerebro-designer",
+            "description": "Design Cerebro pages with brand consistency, density, and proof-first UX.",
+            "capabilities": {"provides": ["greenmark.skill.design-cerebro"]},
+            "status": "registered",
+        },
+        {
+            "name": "greenmark-data-shipper",
+            "description": "Publishes qualified DD5 data to Supabase/Cerebro with batch parity, lineage, rollback, and readback proof.",
+            "capabilities": {
+                "owns": [
+                    "greenmark.data.ship",
+                    "greenmark.data.publication",
+                    "greenmark.supabase.metric.publish",
+                    "greenmark.cerebro.readback",
+                ],
+                "aliases": ["ship data", "publish DD5 values", "Supabase publication", "Cerebro readback"],
+                "anti_routes": ["cerebro.release.ship", "cerebro.production.deploy"],
+            },
+            "positive_examples": [
+                "ship data to Supabase",
+                "publish DD5 values",
+                "prove Cerebro readback from shipped data",
+            ],
+            "status": "registered",
+        },
+    ]
+    monkeypatch.setattr(asmp, "request", lambda *_args, **_kwargs: services)
+
+    data = run_json(
+        asmp,
+        "ambient",
+        "--event",
+        "UserPromptSubmit",
+        "--prompt",
+        "ship live DD5 data to Supabase and prove Cerebro reads it",
+    )
+
+    assert data["injected"] is True
+    assert data["candidates"][0]["name"] == "greenmark-data-shipper"
+    assert data["candidates"][0]["provides"][0] == "greenmark.data.ship"
+
+
 def test_subagent_requires_relevant_scope_or_parent_flag(monkeypatch):
     asmp = load_asmp()
     monkeypatch.setattr(asmp, "request", lambda *_args, **_kwargs: [])
