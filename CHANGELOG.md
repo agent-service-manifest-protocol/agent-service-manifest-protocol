@@ -5,6 +5,15 @@ Durable, cross-system record of changes to the ASMP reference implementation
 files from `main`, so this file is the shared history of what each machine is
 running. Newest first.
 
+## [Unreleased] — Federate via conduit
+
+- **Conduit as federation transport.** A peer may name a conduit `machine_id`
+  (`conduit: mac-mini-01`) instead of a raw `ssh:` target. The hub then reaches
+  it via `conduit run --target <id>` — delegating fleet reach/auth (user,
+  endpoint, host-key handling) to conduit, the layer that owns it, instead of
+  hardcoding SSH endpoints in `host.yaml`. `federation.conduit_bin` points at
+  the conduit CLI; raw `ssh:` peers still work.
+
 ## [Unreleased] — Host-aware registry + cross-system discovery
 
 The bootstrap registry was single-host: every service was implicitly local,
