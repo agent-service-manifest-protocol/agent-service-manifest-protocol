@@ -915,6 +915,40 @@ def cmd_host(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hosts(args: argparse.Namespace) -> int:
+    """Host discovery — every machine ASMP knows about across the fleet."""
+    data = request("GET", "/hosts")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    hosts = data.get("hosts", [])
+    print(f"Hosts ({len(hosts)})  local={data.get('local')}")
+    for h in sorted(hosts, key=lambda x: x.get("host", "")):
+        mark = "*" if h.get("self") else " "
+        note = "  (declared, not yet seen)" if h.get("declared_only") else ""
+        print(f"  {mark} {h.get('host',''):24} services={h.get('services',0)}{note}")
+    return 0
+
+
+def cmd_host_history(args: argparse.Namespace) -> int:
+    """Durable host roster over time — when each machine was seen and its size."""
+    params = {"limit": str(args.limit)}
+    if args.host:
+        params["host"] = args.host
+    data = request("GET", "/hosts/history", params=params)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    rows = data.get("history", [])
+    if not rows:
+        print("No host history yet (federation hasn't snapshotted).")
+        return 0
+    print(f"Host history ({len(rows)} records)")
+    for r in rows:
+        print(f"  {(r.get('ts') or '')[:19]}  {r.get('host',''):24} services={r.get('services',0)}")
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     params: dict[str, str] = {}
     if args.section:
@@ -1215,6 +1249,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("health", help="Registry health summary").set_defaults(func=cmd_health)
     sub.add_parser("host", help="Show host profile").set_defaults(func=cmd_host)
+    sub.add_parser("hosts", help="Host discovery — all machines in the fleet").set_defaults(func=cmd_hosts)
+
+    hist_p = sub.add_parser("host-history", help="Host roster over time (durable)")
+    hist_p.add_argument("--host", help="Filter to one host")
+    hist_p.add_argument("--limit", type=int, default=200, help="Max records (default 200)")
+    hist_p.set_defaults(func=cmd_host_history)
 
     list_p = sub.add_parser("list", help="List registered services")
     list_p.add_argument("--section", help="Filter by section")
