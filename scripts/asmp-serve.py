@@ -285,10 +285,15 @@ def host_history(host_filter: Optional[str] = None, limit: int = 200) -> list[di
 
 
 def sync_peers(host: dict) -> dict:
-    """Pull each configured peer's registry over SSH and announce its services
+    """Pull each configured peer's registry over SSH and write its services
     locally, stamped with the peer's canonical host. Peers are localhost-bound,
-    so we reach them via SSH rather than exposing :7700."""
+    so we reach them via SSH rather than exposing :7700.
+
+    O(n) in services: write_manifest directly rather than announce_manifest,
+    which would reload the whole registry per service (O(n^2) — chokes the
+    single-threaded server on a real fleet)."""
     peers = (host.get("federation") or {}).get("peers") or []
+    local = host_name(host)
     stats = {"peers": 0, "synced": 0, "errors": 0}
     for peer in peers:
         label, ssh_target = peer.get("host"), peer.get("ssh")
@@ -297,7 +302,8 @@ def sync_peers(host: dict) -> dict:
         stats["peers"] += 1
         try:
             out = subprocess.run(
-                ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", ssh_target,
+                ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes",
+                 "-o", "StrictHostKeyChecking=accept-new", ssh_target,
                  "curl -s --max-time 5 http://127.0.0.1:7700/services"],
                 capture_output=True, text=True, timeout=25,
             )
@@ -309,12 +315,15 @@ def sync_peers(host: dict) -> dict:
             log.warning("peer %s (%s) unreachable: %s", label, ssh_target, e)
             stats["errors"] += 1
             continue
+        now = datetime.now(timezone.utc).isoformat()
         for m in services:
             if not isinstance(m, dict) or m.get("asmp") != "0.1" or not m.get("name"):
                 continue
-            # ponytail: stamp the direct peer; transitively-federated entries on
-            # the peer collapse to it. Fine for hub-and-spoke; revisit for mesh.
-            announce_manifest({**m, "host": label}, host)
+            # Only the peer's OWN services — skip what it federated from elsewhere,
+            # so transitive entries don't bloat/mis-attribute (mesh-safe).
+            if m.get("sync") == "federate":
+                continue
+            write_manifest({**m, "host": label, "sync": "federate", "last_seen": now}, local)
             stats["synced"] += 1
         log.info("federated %d services from %s", stats["synced"], label)
     return stats
