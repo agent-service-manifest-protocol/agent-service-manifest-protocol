@@ -284,35 +284,49 @@ def host_history(host_filter: Optional[str] = None, limit: int = 200) -> list[di
     return rows[-limit:]
 
 
+def _peer_fetch_cmd(peer: dict, fed: dict) -> Optional[list[str]]:
+    """Command that prints a peer's /services JSON. Prefers conduit — the fleet's
+    reach/auth layer (it owns each machine's user+endpoint+host-key handling) —
+    when the peer names a conduit `machine_id`; falls back to a raw ssh target."""
+    fetch = "curl -s --max-time 5 http://127.0.0.1:7700/services"
+    if peer.get("conduit"):
+        conduit_bin = str(Path(fed.get("conduit_bin") or "conduit").expanduser())
+        return [conduit_bin, "run", "--target", peer["conduit"], "sh", "-c", fetch]
+    if peer.get("ssh"):
+        return ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=accept-new", peer["ssh"], fetch]
+    return None
+
+
 def sync_peers(host: dict) -> dict:
-    """Pull each configured peer's registry over SSH and write its services
-    locally, stamped with the peer's canonical host. Peers are localhost-bound,
-    so we reach them via SSH rather than exposing :7700.
+    """Pull each configured peer's registry and write its services locally,
+    stamped with the peer's canonical host. Peers are localhost-bound, so we
+    reach them via conduit (preferred) or raw SSH.
 
     O(n) in services: write_manifest directly rather than announce_manifest,
     which would reload the whole registry per service (O(n^2) — chokes the
     single-threaded server on a real fleet)."""
-    peers = (host.get("federation") or {}).get("peers") or []
+    fed = host.get("federation") or {}
+    peers = fed.get("peers") or []
     local = host_name(host)
     stats = {"peers": 0, "synced": 0, "errors": 0}
     for peer in peers:
-        label, ssh_target = peer.get("host"), peer.get("ssh")
-        if not label or not ssh_target:
+        label = peer.get("host")
+        cmd = _peer_fetch_cmd(peer, fed)
+        if not label or not cmd:
             continue
         stats["peers"] += 1
         try:
             out = subprocess.run(
-                ["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes",
-                 "-o", "StrictHostKeyChecking=accept-new", ssh_target,
-                 "curl -s --max-time 5 http://127.0.0.1:7700/services"],
-                capture_output=True, text=True, timeout=25,
+                cmd, capture_output=True, text=True, timeout=30,
             )
             if out.returncode != 0:
-                raise RuntimeError(out.stderr.strip() or f"ssh exit {out.returncode}")
+                raise RuntimeError(out.stderr.strip() or f"reach exit {out.returncode}")
             data = json.loads(out.stdout)
             services = data if isinstance(data, list) else data.get("services", [])
         except Exception as e:
-            log.warning("peer %s (%s) unreachable: %s", label, ssh_target, e)
+            log.warning("peer %s (%s) unreachable: %s",
+                        label, peer.get("conduit") or peer.get("ssh"), e)
             stats["errors"] += 1
             continue
         now = datetime.now(timezone.utc).isoformat()
