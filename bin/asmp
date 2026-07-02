@@ -29,6 +29,18 @@ from typing import Any, Optional
 DEFAULT_REGISTRY = "http://127.0.0.1:7700"
 HOST_FILE = Path.home() / ".asmp" / "host.yaml"
 DISCOVERIES_FILE = Path.home() / ".asmp" / "discoveries.jsonl"
+
+# ── Self-update check ──────────────────────────────────────────────
+ASMP_VERSION = "0.2.0"
+ASMP_COMMIT = "1eb8bd85fff0c56ba43d79bfe8d02137b27e3562"
+GITHUB_REPO = "agent-service-manifest-protocol/agent-service-manifest-protocol"
+UPDATE_CACHE_FILE = Path.home() / ".asmp" / ".update-check.json"
+UPDATE_CHECK_TTL = 6 * 3600  # 6 hours in seconds
+
+# Global A2A-inspired notice envelope list — injected into JSON or stderr
+_NOTICES: list[dict[str, Any]] = []
+_NOTICES_FLUSHED: bool = False
+
 AMBIENT_EVENT_CAPS = {
     "SessionStart": 1536,
     "UserPromptSubmit": 2048,
@@ -1501,18 +1513,344 @@ def build_parser() -> argparse.ArgumentParser:
     m_reg.add_argument("manifest", help="Path to ai-model manifest YAML")
     m_reg.set_defaults(func=cmd_models_register)
 
+    sub.add_parser("version", help="Print ASMP CLI version and commit").set_defaults(func=cmd_version)
+    sub.add_parser("update", help="Pull latest ASMP CLI from GitHub").set_defaults(func=cmd_update)
+    sub.add_parser("sync", help="Get two-way sync instructions").set_defaults(func=cmd_sync)
     return p
 
 
+
+  # ---- asmp sync, update, version, self-update check ----
+def _add_notice(what, where, when, why, action, severity="info"):
+    _NOTICES.append({
+        "from": "asmp-cli:self-update-checker",
+        "to": "calling-agent",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": "notice",
+        "severity": severity,
+        "what": what,
+        "where": where,
+        "when": when,
+        "why": why,
+        "action": action,
+    })
+
+
+def _check_for_update():
+    import time
+    cache = {}
+    try:
+        if UPDATE_CACHE_FILE.exists():
+            cache = json.loads(UPDATE_CACHE_FILE.read_text())
+    except Exception:
+        cache = {}
+    now = time.time()
+    last_check = cache.get("last_check", 0)
+    if now - last_check < UPDATE_CHECK_TTL:
+        if cache.get("update_available"):
+            _add_notice(
+                what="CLI update available: local=%s remote=%s" % (str(cache.get('local_sha','?'))[:7], str(cache.get('remote_sha','?'))[:7]),
+                where=str(Path.home() / ".asmp" / "bin" / "asmp"),
+                when=cache.get("remote_date", "unknown"),
+                why="Remote commit differs from baked-in ASMP_COMMIT",
+                action="Run: asmp update",
+                severity="warning",
+            )
+        return
+    api_url = "https://api.github.com/repos/%s/commits?path=scripts/asmp&per_page=1" % GITHUB_REPO
+    try:
+        req = urllib.request.Request(api_url, headers={"Accept": "application/json", "User-Agent": "asmp-cli-suc"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            commits = json.loads(resp.read().decode())
+        if not commits:
+            return
+        remote_sha = commits[0].get("sha", "")
+        remote_date = commits[0].get("commit", {}).get("committer", {}).get("date", "")
+    except Exception:
+        return
+    update_available = bool(remote_sha and remote_sha != ASMP_COMMIT)
+    cache = {"last_check": now, "local_sha": ASMP_COMMIT, "remote_sha": remote_sha, "remote_date": remote_date, "update_available": update_available}
+    try:
+        UPDATE_CACHE_FILE.write_text(json.dumps(cache, indent=2))
+    except Exception:
+        pass
+    if update_available:
+        _add_notice(
+            what="CLI update available: local=%s remote=%s" % (ASMP_COMMIT[:7], remote_sha[:7]),
+            where=str(Path.home() / ".asmp" / "bin" / "asmp"),
+            when=remote_date,
+            why="Remote commit differs from baked-in ASMP_COMMIT",
+            action="Run: asmp update",
+            severity="warning",
+        )
+
+
+def _check_local_git_state():
+    import subprocess
+    asmp_dir = Path.home() / ".asmp"
+    if not (asmp_dir / ".git").exists():
+        return
+    branch = "main"
+    try:
+        r = subprocess.run(["git", "branch", "--show-current"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            branch = r.stdout.strip()
+    except Exception:
+        pass
+    # Check uncommitted changes
+    try:
+        r = subprocess.run(["git", "status", "--porcelain", "--", "bin/asmp"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            _add_notice(
+                what="Local CLI has uncommitted changes on branch '%s'" % branch,
+                where=str(asmp_dir / "bin" / "asmp"),
+                when=datetime.now(timezone.utc).isoformat(),
+                why="Agent may be running a divergent CLI not yet committed",
+                action="Run: git -C ~/.asmp commit -am 'update asmp cli' && git push origin %s" % branch,
+                severity="warning",
+            )
+            return
+    except Exception:
+        pass
+    # Check if not on main
+    if branch != "main":
+        try:
+            r = subprocess.run(["git", "rev-list", "--left-right", "--count", "main..." + branch], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                parts = r.stdout.strip().split()
+                if len(parts) == 2:
+                    b, a = int(parts[0]), int(parts[1])
+                    _add_notice(
+                        what="On branch '%s', not main (%d ahead, %d behind main)" % (branch, a, b),
+                        where=str(asmp_dir) + " (branch: %s)" % branch,
+                        when=datetime.now(timezone.utc).isoformat(),
+                        why="Agent running on feature/foreman branch, not mainline",
+                        action="To sync main: git checkout main && git pull origin main. To merge: git merge main",
+                        severity="info",
+                    )
+                    return
+        except Exception:
+            pass
+    # Check ahead/behind origin
+    try:
+        subprocess.run(["git", "fetch", "--quiet", "origin"], cwd=str(asmp_dir), capture_output=True, timeout=10)
+        r = subprocess.run(["git", "rev-list", "--left-right", "--count", "origin/%s...HEAD" % branch], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split()
+            if len(parts) == 2:
+                behind, ahead = int(parts[0]), int(parts[1])
+                if ahead > 0 and behind > 0:
+                    _add_notice(what="Branch '%s' is %d ahead and %d behind origin — diverged" % (branch, ahead, behind), where=str(asmp_dir), when=datetime.now(timezone.utc).isoformat(), why="Local and upstream diverged — merge needed", action="Run: asmp sync", severity="warning")
+                elif ahead > 0:
+                    _add_notice(what="Branch '%s' is %d commit(s) ahead of origin — unpushed" % (branch, ahead), where=str(asmp_dir), when=datetime.now(timezone.utc).isoformat(), why="Local commits not yet pushed upstream", action="Run: git -C ~/.asmp push origin %s" % branch, severity="warning")
+                elif behind > 0:
+                    _add_notice(what="Branch '%s' is %d commit(s) behind origin — unpulled" % (branch, behind), where=str(asmp_dir), when=datetime.now(timezone.utc).isoformat(), why="Upstream has newer commits", action="Run: git -C ~/.asmp pull origin %s" % branch, severity="warning")
+    except Exception:
+        pass
+
+
+def cmd_version(args):
+    print("asmp " + ASMP_VERSION)
+    print("commit: " + ASMP_COMMIT)
+    print("repo:   github.com/" + GITHUB_REPO)
+    return 0
+
+
+def cmd_update(args):
+    import subprocess
+    asmp_dir = Path.home() / ".asmp"
+    bin_file = asmp_dir / "bin" / "asmp"
+    if (asmp_dir / ".git").exists():
+        try:
+            r = subprocess.run(["git", "pull"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=30)
+            if r.returncode == 0:
+                print("Updated via git pull.")
+                print(r.stdout.strip())
+                return 0
+            print("git pull failed: " + r.stderr.strip(), file=sys.stderr)
+        except Exception as e:
+            print("git pull error: " + str(e), file=sys.stderr)
+    raw_url = "https://raw.githubusercontent.com/%s/main/scripts/asmp" % GITHUB_REPO
+    print("Downloading from " + raw_url + "...")
+    try:
+        req = urllib.request.Request(raw_url, headers={"User-Agent": "asmp-cli-self-update"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            content = resp.read()
+        bin_file.write_bytes(content)
+        bin_file.chmod(0o755)
+        print("Updated " + str(bin_file))
+        return 0
+    except Exception as e:
+        print("Update failed: " + str(e), file=sys.stderr)
+        return 1
+
+def cmd_sync(args):
+    import subprocess
+    asmp_dir = Path.home() / ".asmp"
+    has_git = (asmp_dir / ".git").exists()
+    has_remote = False
+    is_dirty = False
+    ahead = 0
+    behind = 0
+    local_branch = "main"
+    remote_sha = ""
+    remote_date = ""
+    local_sha_full = ASMP_COMMIT
+    if has_git:
+        try:
+            r = subprocess.run(["git", "status", "--porcelain", "--", "bin/asmp"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+            is_dirty = bool(r.returncode == 0 and r.stdout.strip())
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["git", "remote", "get-url", "origin"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+            has_remote = r.returncode == 0
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["git", "branch", "--show-current"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                local_branch = r.stdout.strip() or "main"
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                local_sha_full = r.stdout.strip()
+        except Exception:
+            pass
+        if has_remote:
+            try:
+                subprocess.run(["git", "fetch", "--quiet", "origin"], cwd=str(asmp_dir), capture_output=True, timeout=10)
+                r = subprocess.run(["git", "rev-list", "--left-right", "--count", "origin/%s...HEAD" % local_branch], cwd=str(asmp_dir), capture_output=True, text=True, timeout=5)
+                if r.returncode == 0 and r.stdout.strip():
+                    parts = r.stdout.strip().split()
+                    if len(parts) == 2:
+                        behind, ahead = int(parts[0]), int(parts[1])
+            except Exception:
+                pass
+    api_url = "https://api.github.com/repos/%s/commits?path=scripts/asmp&per_page=1" % GITHUB_REPO
+    try:
+        req = urllib.request.Request(api_url, headers={"Accept": "application/json", "User-Agent": "asmp-cli-sync"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            commits = json.loads(resp.read().decode())
+        if commits:
+            remote_sha = commits[0].get("sha", "")
+            remote_date = commits[0].get("commit", {}).get("committer", {}).get("date", "")
+    except Exception:
+        pass
+    if is_dirty and ahead > 0 and behind > 0:
+        state = "diverged-dirty"
+    elif is_dirty and behind > 0:
+        state = "diverged-dirty"
+    elif is_dirty and ahead > 0:
+        state = "dirty-ahead"
+    elif is_dirty:
+        state = "dirty"
+    elif ahead > 0 and behind > 0:
+        state = "diverged"
+    elif ahead > 0:
+        state = "ahead"
+    elif behind > 0:
+        state = "behind"
+    elif not has_git:
+        state = "no-git"
+    elif not has_remote:
+        state = "no-remote"
+    else:
+        state = "clean"
+    instructions = _build_sync_instructions(state, asmp_dir, local_branch, local_sha_full[:7], remote_sha[:7], remote_date, ahead, behind, is_dirty, has_git, has_remote)
+    if args.json:
+        emit(instructions, json_out=True)
+    else:
+        print("ASMP SYNC -- state: " + state)
+        print("  local:  " + local_sha_full[:7] + " (" + local_branch + ")")
+        print("  remote: " + (remote_sha[:7] or "unknown") + " (" + (remote_date or "unknown") + ")")
+        print("  dirty:  " + str(is_dirty) + "  ahead: " + str(ahead) + "  behind: " + str(behind))
+        print()
+        print("INSTRUCTIONS FOR CALLING AGENT:")
+        print()
+        for i, step in enumerate(instructions["steps"], 1):
+            print("  Step %d: %s" % (i, step["action"]))
+            print("    command: " + step["command"])
+            if step.get("why"):
+                print("    why: " + step["why"])
+            if step.get("conflict_resolution"):
+                print("    conflict resolution: " + step["conflict_resolution"])
+            print()
+        if instructions.get("notes"):
+            print("NOTES:")
+            for note in instructions["notes"]:
+                print("  - " + note)
+    return 0
+
+
+def _build_sync_instructions(state, asmp_dir, local_branch, local_sha, remote_sha, remote_date, ahead, behind, is_dirty, has_git, has_remote):
+    steps = []
+    notes = []
+    if state == "clean":
+        steps.append({"action": "No sync needed -- local is up to date", "command": "", "why": "Local %s matches remote %s" % (local_sha, remote_sha)})
+    elif state == "dirty":
+        steps.append({"action": "Stash local changes to bin/asmp", "command": "git -C %s stash push -m 'asmp-sync-stash' -- bin/asmp" % asmp_dir, "why": "Local CLI has uncommitted modifications -- must stash before pulling"})
+        steps.append({"action": "Pull latest from upstream", "command": "git -C %s pull origin %s" % (asmp_dir, local_branch), "why": "Get latest upstream changes"})
+        steps.append({"action": "Re-apply stashed local changes", "command": "git -C %s stash pop" % asmp_dir, "why": "Re-apply local modifications on top of updated upstream", "conflict_resolution": "Resolve conflicts in bin/asmp manually. Keep upstream for shared functions, keep local for local-only additions."})
+        steps.append({"action": "Commit and push changes upstream", "command": "git -C %s add bin/asmp && git -C %s commit -m 'sync asmp changes' && git -C %s push origin %s" % (asmp_dir, asmp_dir, asmp_dir, local_branch), "why": "Two-way sync: local improvements should go back upstream"})
+    elif state == "ahead":
+        steps.append({"action": "Push local commits", "command": "git -C %s push origin %s" % (asmp_dir, local_branch), "why": "Local is %d commit(s) ahead" % ahead})
+    elif state == "behind":
+        steps.append({"action": "Pull latest", "command": "git -C %s pull origin %s" % (asmp_dir, local_branch), "why": "Local is %d commit(s) behind" % behind})
+    elif state == "dirty-ahead":
+        steps.append({"action": "Commit local changes first", "command": "git -C %s add bin/asmp && git -C %s commit -m 'sync asmp changes'" % (asmp_dir, asmp_dir), "why": "Uncommitted changes AND unpushed commits"})
+        steps.append({"action": "Push all commits", "command": "git -C %s push origin %s" % (asmp_dir, local_branch), "why": "%d commit(s) ahead" % ahead})
+    elif state in ("diverged", "diverged-dirty"):
+        notes.append("DIVERGED: local and upstream have different commits -- merge required")
+        if is_dirty:
+            steps.append({"action": "Stash local changes", "command": "git -C %s stash push -m 'asmp-sync-stash' -- bin/asmp" % asmp_dir, "why": "Stash before merging"})
+        steps.append({"action": "Fetch latest upstream", "command": "git -C %s fetch origin" % asmp_dir, "why": "Get latest upstream state"})
+        steps.append({"action": "Merge upstream", "command": "git -C %s merge origin/%s" % (asmp_dir, local_branch), "why": "Merge to reconcile", "conflict_resolution": "Resolve conflicts manually. Prefer upstream for core CLI functions. git add && git commit."})
+        if is_dirty:
+            steps.append({"action": "Re-apply stashed changes", "command": "git -C %s stash pop" % asmp_dir, "why": "Recover local modifications", "conflict_resolution": "Resolve conflicts, keep merged upstream as base."})
+        steps.append({"action": "Push merged result", "command": "git -C %s push origin %s" % (asmp_dir, local_branch), "why": "Push merged result upstream"})
+    elif state == "no-remote":
+        notes.append("No git remote configured")
+        steps.append({"action": "Add upstream remote", "command": "git -C %s remote add origin https://github.com/%s.git" % (asmp_dir, GITHUB_REPO), "why": "Connect local repo to GitHub"})
+        steps.append({"action": "Fetch and set tracking", "command": "git -C %s fetch origin && git -C %s branch --set-upstream-to=origin/%s %s" % (asmp_dir, asmp_dir, local_branch, local_branch), "why": "Establish tracking"})
+        steps.append({"action": "Pull and merge", "command": "git -C %s pull origin %s --allow-unrelated-histories" % (asmp_dir, local_branch), "why": "Merge upstream into local", "conflict_resolution": "Resolve conflicts in bin/asmp manually, then commit and push."})
+    elif state == "no-git":
+        notes.append("No git repo -- bin/asmp not version controlled")
+        steps.append({"action": "Initialize git repo", "command": "git -C %s init && git -C %s remote add origin https://github.com/%s.git" % (asmp_dir, asmp_dir, GITHUB_REPO), "why": "Set up version control"})
+        steps.append({"action": "Fetch and align with upstream", "command": "git -C %s fetch origin && git -C %s reset --hard origin/%s" % (asmp_dir, asmp_dir, local_branch), "why": "Align with upstream", "conflict_resolution": "Back up local changes first: cp bin/asmp bin/asmp.backup"})
+    return {"state": state, "local_sha": local_sha, "remote_sha": remote_sha, "remote_date": remote_date, "ahead": ahead, "behind": behind, "is_dirty": is_dirty, "steps": steps, "notes": notes}
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
+    if not any(cmd in argv for cmd in ("version", "update", "sync", "--help", "-h")):
+        try:
+            _check_local_git_state()
+        except Exception:
+            pass
+        try:
+            _check_for_update()
+        except Exception:
+            pass
     json_out = "--json" in argv
     if json_out:
         argv = [a for a in argv if a != "--json"]
     parser = build_parser()
     args = parser.parse_args(argv)
     args.json = json_out or getattr(args, "json", False)
-    return args.func(args)
+    result = args.func(args)
+    if not _NOTICES_FLUSHED and _NOTICES:
+        if json_out:
+            print(json.dumps({"_notices": _NOTICES}, indent=2), file=sys.stderr)
+        else:
+            for n in _NOTICES:
+                print(f"[ASMP] {n['severity'].upper()}: {n['what']}", file=sys.stderr)
+                print(f"[ASMP]   where: {n['where']}", file=sys.stderr)
+                print(f"[ASMP]   when:  {n['when']}", file=sys.stderr)
+                print(f"[ASMP]   why:   {n['why']}", file=sys.stderr)
+                print(f"[ASMP]   action: {n['action']}", file=sys.stderr)
+    return result
 
 
 if __name__ == "__main__":
