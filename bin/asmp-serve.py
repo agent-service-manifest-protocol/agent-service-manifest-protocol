@@ -7,11 +7,15 @@ Spec: https://agentservicemanifest.io/spec/registration-api
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -121,7 +125,7 @@ def parse_source_manifest(path: Path) -> Optional[dict]:
         return None
     if data.get("asmp") != "0.1":
         return None
-    if data.get("kind") not in ("service", "tool", "mcp-server"):
+    if data.get("kind") not in ("service", "tool", "mcp-server", "ai-model"):
         return None
     if not data.get("name"):
         return None
@@ -343,6 +347,146 @@ def sync_peers(host: dict) -> dict:
     return stats
 
 
+# ── AI model registry: secret digests, routing, health ─────────────
+
+def compute_secret_digest(env_var: str) -> Optional[str]:
+    """Digest of the *current* env value, never the raw secret. Recomputed on
+    every request so a rotated/absent key surfaces immediately as unverified."""
+    val = os.environ.get(env_var)
+    if not val:
+        return None
+    return "sha256:" + hashlib.sha256(f"{env_var}:{val}".encode()).hexdigest()
+
+
+def verify_model_secret(manifest: dict) -> dict:
+    """Re-derive the secret digest from os.environ and compare to the manifest.
+    Models with no `secret` block need no key and count as verified."""
+    secret = manifest.get("secret") or {}
+    env_var = secret.get("env_var")
+    expected = secret.get("digest")
+    if not env_var:
+        return {"env_var": None, "required": False, "verified": True, "reason": "no secret required"}
+    actual = compute_secret_digest(env_var)
+    if actual is None:
+        return {"env_var": env_var, "required": True, "verified": False, "reason": "env var not set"}
+    if not expected:
+        return {"env_var": env_var, "required": True, "verified": False, "reason": "no digest in manifest"}
+    verified = actual == expected
+    return {
+        "env_var": env_var,
+        "required": True,
+        "verified": verified,
+        "reason": "digest match" if verified else "digest mismatch",
+    }
+
+
+def model_summary(manifest: dict) -> dict:
+    model = manifest.get("model") or {}
+    pricing = manifest.get("pricing") or {}
+    caps = manifest.get("capabilities") or {}
+    secret = verify_model_secret(manifest)
+    return {
+        "name": manifest.get("name"),
+        "description": manifest.get("description", ""),
+        "provider": model.get("provider"),
+        "model_id": model.get("model_id"),
+        "base_url": model.get("base_url"),
+        "context_window": model.get("context_window"),
+        "max_output_tokens": model.get("max_output_tokens"),
+        "provides": caps.get("provides", []),
+        "strengths": caps.get("strengths", []),
+        "weaknesses": caps.get("weaknesses", []),
+        "pricing": {
+            "input_per_1m": pricing.get("input_per_1m"),
+            "output_per_1m": pricing.get("output_per_1m"),
+            "tier": pricing.get("tier"),
+            "quota_monthly_tokens": pricing.get("quota_monthly_tokens"),
+        },
+        "secret_env_var": secret["env_var"],
+        "secret_required": secret["required"],
+        "secret_verified": secret["verified"],
+        "status": manifest.get("status"),
+        "host": manifest.get("host"),
+    }
+
+
+def ai_models(services: dict) -> list[dict]:
+    return [m for m in services.values() if m.get("kind") == "ai-model"]
+
+
+def model_cost(manifest: dict) -> float:
+    """Comparable cost per 1M tokens — the pricier of input/output."""
+    pricing = manifest.get("pricing") or {}
+    return max(float(pricing.get("input_per_1m") or 0.0), float(pricing.get("output_per_1m") or 0.0))
+
+
+def recommend_models(services: dict, task: Optional[str], budget: Optional[float]) -> dict:
+    matches = []
+    for m in ai_models(services):
+        provides = (m.get("capabilities") or {}).get("provides") or []
+        if task and task not in provides:
+            continue
+        if not verify_model_secret(m)["verified"]:
+            continue
+        cost = model_cost(m)
+        if budget is not None and cost > budget:
+            continue
+        summary = model_summary(m)
+        summary["cost_per_1m"] = cost
+        matches.append((cost, summary))
+    matches.sort(key=lambda item: (item[0], item[1].get("name") or ""))
+    ranked = [summary for _cost, summary in matches]
+    return {
+        "task": task,
+        "budget": budget,
+        "count": len(ranked),
+        "recommended": ranked[0] if ranked else None,
+        "models": ranked,
+    }
+
+
+def _parse_duration(val, default: float) -> float:
+    if val is None:
+        return default
+    s = str(val).strip().lower()
+    try:
+        if s.endswith("ms"):
+            return float(s[:-2]) / 1000.0
+        if s.endswith("s"):
+            return float(s[:-1])
+        if s.endswith("m"):
+            return float(s[:-1]) * 60.0
+        return float(s)
+    except ValueError:
+        return default
+
+
+def check_models_health(services: dict) -> list[dict]:
+    results = []
+    for m in ai_models(services):
+        health = m.get("health") or {}
+        target = health.get("target")
+        entry = {"name": m.get("name"), "target": target, "healthy": False, "status": None, "error": None}
+        if not target:
+            entry["error"] = "no health target"
+            results.append(entry)
+            continue
+        timeout = _parse_duration(health.get("timeout"), 10.0)
+        try:
+            req = urllib.request.Request(target, method="GET", headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                entry["status"] = resp.status
+                entry["healthy"] = resp.status < 500
+        except urllib.error.HTTPError as e:
+            # An auth/not-found response still proves the endpoint is reachable.
+            entry["status"] = e.code
+            entry["healthy"] = e.code < 500
+        except Exception as e:  # noqa: BLE001 — network/DNS/timeout all mean unreachable
+            entry["error"] = str(e)
+        results.append(entry)
+    return results
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -434,6 +578,27 @@ class Handler(BaseHTTPRequestHandler):
             self._json(matches)
             return
 
+        if path == "/models":
+            self._json([model_summary(m) for m in ai_models(services)])
+            return
+
+        if path == "/models/recommend":
+            task = qs.get("task", [None])[0]
+            budget_raw = qs.get("budget", [None])[0]
+            budget = None
+            if budget_raw not in (None, ""):
+                try:
+                    budget = float(budget_raw)
+                except ValueError:
+                    self._json({"error": f"invalid budget: {budget_raw}"}, 400)
+                    return
+            self._json(recommend_models(services, task, budget))
+            return
+
+        if path == "/models/health":
+            self._json(check_models_health(services))
+            return
+
         self._json({"error": "Not found"}, 404)
 
     def do_POST(self):
@@ -452,6 +617,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/reload":
             services = load_services()
             self._json({"message": "Registry reloaded", "total": len(services)})
+            return
+
+        if path == "/models/verify":
+            services = load_services()
+            results = []
+            for m in ai_models(services):
+                results.append({"name": m.get("name"), **verify_model_secret(m)})
+            verified = sum(1 for r in results if r["verified"])
+            self._json({
+                "total": len(results),
+                "verified": verified,
+                "unverified": len(results) - verified,
+                "results": results,
+            })
             return
 
         if path == "/services/announce":
