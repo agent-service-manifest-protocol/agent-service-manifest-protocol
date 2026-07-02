@@ -111,6 +111,29 @@ clean old logs:
 find ~/.asmp/logs/sync/ -name '*.log' -mtime +30 -delete
 ```
 
+## Cleanup After Initial Sync
+
+After the first sync brings the local repo in line with upstream, prune any
+stale branches so only `main` remains:
+
+```bash
+cd ~/.asmp
+# Remove stale local branches (foreman workers, old feature branches)
+git branch | grep -v '^*' | grep -v main | xargs git branch -D
+# Remove stale remote tracking branches
+git remote prune origin
+```
+
+Verify:
+
+```bash
+git branch -a
+# Should show only: * main, remotes/origin/main
+```
+
+This keeps the repo tidy and prevents `asmp sync` from having to reason about
+branches that no longer matter.
+
 ## Pitfalls
 
 - **Don't use `no_agent=true`**: The whole point is reading sync output and
@@ -119,3 +142,6 @@ find ~/.asmp/logs/sync/ -name '*.log' -mtime +30 -delete
   delivers a pointless "everything is fine" message every day.
 - **The ASMP binary path** is `~/.local/bin/asmp`. The cron environment has
   `$HOME` set correctly, so this resolves fine.
+- **Prune stale branches after initial sync**: Foreman workers create
+  `foreman/*` branches that linger after the work is done. Once `main` is
+  in sync with upstream, delete them — they only confuse future sync runs.
