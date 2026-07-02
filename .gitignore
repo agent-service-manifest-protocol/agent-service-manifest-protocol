@@ -1,0 +1,8 @@
+# Runtime data — not source code
+*.log
+*.err.log
+host.yaml
+host-history.jsonl
+discoveries.jsonl
+services/
+foreman/

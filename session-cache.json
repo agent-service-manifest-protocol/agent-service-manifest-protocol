@@ -1,0 +1,513 @@
+{
+  "capabilities": {
+    "capabilities": [
+      "agent.auth.required_detection",
+      "agent.discovery",
+      "agent.headless",
+      "agent.second_opinion",
+      "agent.second_opinion.readonly",
+      "agent.terminal_session_control",
+      "asmp.cached_route",
+      "asmp.capabilities",
+      "asmp.discovery.todo",
+      "asmp.mcp",
+      "asmp.registry",
+      "asmp.registry.read",
+      "asmp.registry.write",
+      "asmp.session_context",
+      "file.sync",
+      "finance.investments.performance",
+      "finance.plaid.refresh",
+      "finance.tally.dashboard",
+      "finance.tokut.costs",
+      "fleet.proof",
+      "grok.cli",
+      "host.service_registry",
+      "machine.reach",
+      "mcp.inspect",
+      "mcp.server",
+      "model.list",
+      "remote.run",
+      "tmux.sessions.capture",
+      "tmux.sessions.list",
+      "tmux.sessions.registry",
+      "tmux.sessions.run",
+      "tmux.sessions.send",
+      "ui.layout_critic",
+      "ui.layout_critic.knox_nvidia",
+      "ui.playwright.proof"
+    ]
+  },
+  "commands": {
+    "capabilities": [
+      "/Users/dshanklin/.local/bin/asmp",
+      "--json",
+      "caps"
+    ],
+    "health": [
+      "/Users/dshanklin/.local/bin/asmp",
+      "--json",
+      "health"
+    ],
+    "services": [
+      "/Users/dshanklin/.local/bin/asmp",
+      "--json",
+      "list"
+    ]
+  },
+  "fingerprint": {
+    "count": 6,
+    "latest_mtime": 1782494612.1368258,
+    "names": [
+      "asmp-mcp.asmp.yaml",
+      "asmp-registry.asmp.yaml",
+      "conduit.asmp.yaml",
+      "emux.asmp.yaml",
+      "grok-cli.asmp.yaml",
+      "reeves-tally.asmp.yaml"
+    ],
+    "total_size": 8487
+  },
+  "generated_at": 1782494641.816755,
+  "health": {
+    "healthy": 0,
+    "host": "daniels-mac-mini",
+    "status": "ok",
+    "total": 6,
+    "unchecked": 6,
+    "unhealthy": 0
+  },
+  "services": [
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "asmp.mcp",
+          "asmp.registry.read",
+          "asmp.registry.write",
+          "asmp.discovery.todo",
+          "asmp.session_context",
+          "asmp.cached_route",
+          "agent.discovery"
+        ]
+      },
+      "commands": {
+        "smoke": {
+          "args": [],
+          "command": "/Users/dshanklin/.asmp/bin/asmp-mcp.py",
+          "working_dir": "/Users/dshanklin"
+        }
+      },
+      "created_by": "codex",
+      "description": "Codex stdio MCP wrapper around the local ASMP CLI and registry.",
+      "display": {
+        "icon": "plug",
+        "section": "infrastructure"
+      },
+      "endpoints": [
+        {
+          "command": "/Users/dshanklin/.asmp/bin/asmp-mcp.py",
+          "host": "local",
+          "protocol": "stdio",
+          "visibility": "local"
+        }
+      ],
+      "infra": {
+        "cli": "/Users/dshanklin/.local/bin/asmp",
+        "codex_config": "/Users/dshanklin/.codex/config.toml",
+        "server": "/Users/dshanklin/.asmp/bin/asmp-mcp.py"
+      },
+      "kind": "mcp-server",
+      "name": "asmp-mcp",
+      "owner": "dshanklin",
+      "runtime": {
+        "command": "/Users/dshanklin/.asmp/bin/asmp-mcp.py",
+        "style": "stdio"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "host.service_registry",
+          "agent.discovery",
+          "asmp.registry",
+          "asmp.capabilities"
+        ]
+      },
+      "created_by": "bootstrap-asmp",
+      "description": "Agent Service Manifest Protocol registry for this Mac, bound to localhost on port 7700.",
+      "display": {
+        "icon": "map",
+        "section": "infrastructure"
+      },
+      "endpoints": [
+        {
+          "host": "127.0.0.1",
+          "path": "/health",
+          "port": 7700,
+          "protocol": "http",
+          "visibility": "loopback"
+        }
+      ],
+      "health": {
+        "interval": "30s",
+        "method": "http",
+        "target": "http://127.0.0.1:7700/health",
+        "timeout": "5s"
+      },
+      "infra": {
+        "launchd_label": "io.agentservicemanifest.registry",
+        "plist": "/Users/dshanklin/Library/LaunchAgents/io.agentservicemanifest.registry.plist",
+        "services_dir": "/Users/dshanklin/.asmp/services"
+      },
+      "kind": "service",
+      "name": "asmp-registry",
+      "owner": "dshanklin",
+      "run": {
+        "args": [
+          "kickstart",
+          "-k",
+          "gui/501/io.agentservicemanifest.registry"
+        ],
+        "command": "launchctl",
+        "working_dir": "/Users/dshanklin"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "machine.reach",
+          "remote.run",
+          "file.sync",
+          "fleet.proof"
+        ],
+        "requires": [
+          "networking"
+        ]
+      },
+      "created_by": "agent://grok/ship",
+      "description": "Registry-backed fleet CLI \u2014 reach, run, sync, and prove personal Mac conduits",
+      "display": {
+        "icon": "tunnel",
+        "label": "conduit",
+        "section": "network"
+      },
+      "endpoints": [
+        {
+          "command": "scripts/conduit serve",
+          "host": "local",
+          "protocol": "stdio",
+          "visibility": "local"
+        }
+      ],
+      "generation": 1,
+      "infra": {
+        "machines": [
+          "mac-mini-01",
+          "rentamac-cyprus-01"
+        ],
+        "primary_machine": "mac-mini-01",
+        "reach": {
+          "default": "scripts/conduit doctor --json",
+          "mac-mini-01": "scripts/conduit doctor mac-mini-01 --json"
+        },
+        "registry": "registry/",
+        "repo": "~/repos-personal/conduit"
+      },
+      "kind": "service",
+      "last_seen": "2026-06-26T14:14:11.720859+00:00",
+      "name": "conduit",
+      "owner": "daniel",
+      "runtime": {
+        "exec": "scripts/conduit",
+        "style": "cli"
+      },
+      "section": "network",
+      "status": "registered",
+      "sync": "announce",
+      "version": "0.1.0"
+    },
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "tmux.sessions.list",
+          "tmux.sessions.registry",
+          "tmux.sessions.capture",
+          "tmux.sessions.send",
+          "tmux.sessions.run",
+          "agent.terminal_session_control",
+          "mcp.server"
+        ]
+      },
+      "commands": {
+        "help": {
+          "args": [
+            "run",
+            "--directory",
+            "/Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux",
+            "emux",
+            "--help"
+          ],
+          "command": "uv",
+          "working_dir": "/Users/dshanklin"
+        },
+        "list": {
+          "args": [
+            "run",
+            "--directory",
+            "/Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux",
+            "emux",
+            "ls"
+          ],
+          "command": "uv",
+          "working_dir": "/Users/dshanklin"
+        },
+        "mcp_smoke": {
+          "args": [
+            "run",
+            "--directory",
+            "/Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux",
+            "emux",
+            "mcp"
+          ],
+          "command": "uv",
+          "working_dir": "/Users/dshanklin"
+        }
+      },
+      "created_by": "codex",
+      "description": "Eidos mux: shared registry, CLI, TUI, and MCP server for existing tmux sessions.",
+      "display": {
+        "icon": "terminal",
+        "section": "agents"
+      },
+      "endpoints": [
+        {
+          "command": "uv run --directory /Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux emux mcp",
+          "host": "local",
+          "protocol": "stdio",
+          "visibility": "local"
+        }
+      ],
+      "infra": {
+        "claude_cache": "/Users/dshanklin/.claude/plugins/cache/eidos-marketplace/emux/0.1.0",
+        "codex_config": "/Users/dshanklin/.codex/config.toml",
+        "codex_mcp_server": "mcp_servers.emux",
+        "grok_status": "Grok inspect reports emux user plugin enabled with 1 MCP; Codex tool namespace not exposed in this session.",
+        "plugin_root": "/Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux",
+        "registry": "/Users/dshanklin/.config/emux/registry.json",
+        "safety": "Emux never creates or kills tmux sessions. Send/run tools inject input into existing sessions; capture/list are read-only."
+      },
+      "kind": "mcp-server",
+      "name": "emux",
+      "owner": "dshanklin",
+      "runtime": {
+        "args": [
+          "run",
+          "--directory",
+          "/Users/dshanklin/repos-eidos-agi/eidos-marketplace-emux-ship/plugins/emux",
+          "emux"
+        ],
+        "command": "uv",
+        "style": "cli+mcp"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "agent.second_opinion",
+          "agent.headless",
+          "agent.second_opinion.readonly",
+          "agent.auth.required_detection",
+          "grok.cli",
+          "mcp.inspect",
+          "model.list"
+        ]
+      },
+      "commands": {
+        "help": {
+          "args": [
+            "--help"
+          ],
+          "command": "/Users/dshanklin/.local/bin/grok",
+          "working_dir": "/Users/dshanklin"
+        },
+        "login_device_auth": {
+          "args": [
+            "login",
+            "--device-auth"
+          ],
+          "command": "/Users/dshanklin/.local/bin/grok",
+          "working_dir": "/Users/dshanklin"
+        },
+        "second_opinion_readonly": {
+          "args": [
+            "<prompt>",
+            "--cwd",
+            "/Users/dshanklin"
+          ],
+          "command": "/Users/dshanklin/.asmp/bin/grok-second-opinion.py",
+          "working_dir": "/Users/dshanklin"
+        },
+        "single_turn": {
+          "args": [
+            "-p",
+            "<prompt>",
+            "--no-alt-screen",
+            "--output-format",
+            "plain"
+          ],
+          "command": "/Users/dshanklin/.local/bin/grok",
+          "working_dir": "/Users/dshanklin"
+        }
+      },
+      "created_by": "codex",
+      "description": "Local Grok Build CLI for headless second opinions, agent sessions, model listing, and MCP/plugin inspection.",
+      "display": {
+        "icon": "sparkles",
+        "section": "agents"
+      },
+      "endpoints": [
+        {
+          "command": "/Users/dshanklin/.local/bin/grok",
+          "host": "local",
+          "protocol": "stdio",
+          "visibility": "local"
+        }
+      ],
+      "infra": {
+        "binary": "/Users/dshanklin/.grok/bin/grok",
+        "bounded_wrapper": "/Users/dshanklin/.asmp/bin/grok-second-opinion.py",
+        "config": "/Users/dshanklin/.grok/config.toml",
+        "desired_account": "djshank_eidos",
+        "home": "/Users/dshanklin/.grok",
+        "last_blocker": "Authenticated successfully on 2026-06-26; wrapper denies Shell, Write, and Agent tools and disables web search for background second opinions.",
+        "reauth_command": "/Users/dshanklin/.local/bin/grok login --device-auth"
+      },
+      "kind": "tool",
+      "name": "grok-cli",
+      "owner": "dshanklin",
+      "runtime": {
+        "command": "/Users/dshanklin/.local/bin/grok",
+        "style": "cli"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "asmp": "0.1",
+      "capabilities": {
+        "provides": [
+          "finance.tally.dashboard",
+          "finance.investments.performance",
+          "finance.plaid.refresh",
+          "finance.tokut.costs",
+          "ui.playwright.proof",
+          "ui.layout_critic",
+          "ui.layout_critic.knox_nvidia"
+        ]
+      },
+      "commands": {
+        "e2e": {
+          "args": [
+            "run",
+            "e2e"
+          ],
+          "command": "npm",
+          "working_dir": "/Users/dshanklin/repos-personal/reeves-3/apps/tally-web"
+        },
+        "investment_refresh": {
+          "args": [
+            "-m",
+            "reeves3.tally.cli",
+            "--dally-db",
+            "/Users/dshanklin/.reeves/dally/dally.sqlite3",
+            "investments",
+            "refresh-contribution-chart"
+          ],
+          "command": ".venv/bin/python",
+          "working_dir": "/Users/dshanklin/repos-personal/reeves-3"
+        },
+        "layout_critic": {
+          "args": [
+            "run",
+            "layout:critic",
+            "--",
+            "--route",
+            "/dashboard#tokut"
+          ],
+          "command": "npm",
+          "working_dir": "/Users/dshanklin/repos-personal/reeves-3/apps/tally-web"
+        },
+        "layout_critic_knox_nim": {
+          "args": [
+            "run",
+            "layout:critic:knox-nim",
+            "--",
+            "--route",
+            "/dashboard#tokut"
+          ],
+          "command": "npm",
+          "working_dir": "/Users/dshanklin/repos-personal/reeves-3/apps/tally-web"
+        }
+      },
+      "created_by": "codex",
+      "description": "Reeves/Tally local finance operator console, Dally/Plaid investment refresh, Tokut cost surface, and deterministic proof harness.",
+      "display": {
+        "icon": "tally",
+        "section": "finance"
+      },
+      "endpoints": [
+        {
+          "host": "127.0.0.1",
+          "path": "/dashboard#tokut",
+          "port": 4900,
+          "protocol": "http",
+          "visibility": "loopback"
+        },
+        {
+          "path": "/Users/dshanklin/repos-personal/reeves-3/docs/reports/vanguard-traditional-ira-vs-sp500-daily.json",
+          "protocol": "file",
+          "visibility": "local"
+        }
+      ],
+      "health": {
+        "interval": "60s",
+        "method": "http",
+        "target": "http://127.0.0.1:4900/dashboard",
+        "timeout": "10s"
+      },
+      "infra": {
+        "linear_team": "RVS",
+        "repo": "/Users/dshanklin/repos-personal/reeves-3",
+        "rvs_context": "Add Plaid RVS project",
+        "thread_id": "019eb2d1-d82d-7190-80ef-c0a573e3b488"
+      },
+      "kind": "service",
+      "name": "reeves-tally",
+      "owner": "dshanklin",
+      "run": {
+        "args": [
+          "--prefix",
+          "/Users/dshanklin/repos-personal/reeves-3/apps/tally-web",
+          "run",
+          "dev",
+          "--",
+          "-H",
+          "127.0.0.1",
+          "-p",
+          "4900"
+        ],
+        "command": "npm",
+        "working_dir": "/Users/dshanklin/repos-personal/reeves-3"
+      },
+      "version": "0.1.0"
+    }
+  ],
+  "ttl_seconds": 300
+}
