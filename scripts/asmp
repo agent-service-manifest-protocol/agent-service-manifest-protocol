@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 DEFAULT_REGISTRY = "http://127.0.0.1:7700"
+# Canonical source of truth. Every machine bootstraps scripts/asmp{,-serve.py}
+# from `main` here, so this is where ASMP itself always lives.
+MAIN_REPO = "github.com/agent-service-manifest-protocol/agent-service-manifest-protocol"
 HOST_FILE = Path.home() / ".asmp" / "host.yaml"
 DISCOVERIES_FILE = Path.home() / ".asmp" / "discoveries.jsonl"
 AMBIENT_EVENT_CAPS = {
@@ -1235,12 +1238,16 @@ def cmd_todos(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="asmp",
-        description="ASMP CLI — local service registry on :7700",
+        description=(
+            "ASMP CLI — local service registry on :7700\n"
+            f"Main repo: {MAIN_REPO}"
+        ),
         epilog=(
             "AGENT PROTOCOL: if you discover an agent or AI system that ASMP can't find yet\n"
             "(a real service with no manifest), drop a note so the gap self-heals:\n"
             "  asmp todo <name> --note \"what it is\" [--repo PATH] [--hint \"how to register/reach it\"]\n"
-            "A later pass promotes it to a real manifest. See AGENTS.md."
+            "A later pass promotes it to a real manifest. See AGENTS.md.\n"
+            f"\nASMP itself lives at {MAIN_REPO} — every machine bootstraps scripts/asmp from `main`."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

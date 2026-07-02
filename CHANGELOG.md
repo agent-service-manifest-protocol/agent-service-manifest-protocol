@@ -5,6 +5,14 @@ Durable, cross-system record of changes to the ASMP reference implementation
 files from `main`, so this file is the shared history of what each machine is
 running. Newest first.
 
+## [Unreleased] — Advertise the main repo in `asmp --help`
+
+- **Self-documenting CLI.** `asmp --help` now prints `Main repo: <url>` under the
+  description and a footer line stating that ASMP itself lives at that repo and
+  every machine bootstraps `scripts/asmp` from `main`. A `MAIN_REPO` constant is
+  the single source of that string. Previously the discovery tool didn't say
+  where its own source lived, so agents guessed repo names.
+
 ## [Unreleased] — Federate via conduit
 
 - **Conduit as federation transport.** A peer may name a conduit `machine_id`
