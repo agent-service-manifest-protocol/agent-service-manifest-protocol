@@ -1515,7 +1515,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("version", help="Print ASMP CLI version and commit").set_defaults(func=cmd_version)
     sub.add_parser("update", help="Pull latest ASMP CLI from GitHub").set_defaults(func=cmd_update)
-    sub.add_parser("sync", help="Get two-way sync instructions").set_defaults(func=cmd_sync)
+    sync_p = sub.add_parser("sync", help="Get two-way sync instructions")
+    sync_p.add_argument("--no-log", action="store_true", help="Skip writing sync log to ~/.asmp/logs/sync/")
+    sync_p.set_defaults(func=cmd_sync)
     return p
 
 
@@ -1760,28 +1762,46 @@ def cmd_sync(args):
     else:
         state = "clean"
     instructions = _build_sync_instructions(state, asmp_dir, local_branch, local_sha_full[:7], remote_sha[:7], remote_date, ahead, behind, is_dirty, has_git, has_remote)
+
+    # Build output lines (for both stdout and log)
+    lines = []
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    lines.append("ASMP SYNC — %s — state: %s" % (ts, state))
+    lines.append("  local:  " + local_sha_full[:7] + " (" + local_branch + ")")
+    lines.append("  remote: " + (remote_sha[:7] or "unknown") + " (" + (remote_date or "unknown") + ")")
+    lines.append("  dirty:  " + str(is_dirty) + "  ahead: " + str(ahead) + "  behind: " + str(behind))
+    lines.append("")
+    lines.append("INSTRUCTIONS FOR CALLING AGENT:")
+    lines.append("")
+    for i, step in enumerate(instructions["steps"], 1):
+        lines.append("  Step %d: %s" % (i, step["action"]))
+        lines.append("    command: " + step["command"])
+        if step.get("why"):
+            lines.append("    why: " + step["why"])
+        if step.get("conflict_resolution"):
+            lines.append("    conflict resolution: " + step["conflict_resolution"])
+        lines.append("")
+    if instructions.get("notes"):
+        lines.append("NOTES:")
+        for note in instructions["notes"]:
+            lines.append("  - " + note)
+
+    output = "\n".join(lines) + "\n"
+
     if args.json:
         emit(instructions, json_out=True)
     else:
-        print("ASMP SYNC -- state: " + state)
-        print("  local:  " + local_sha_full[:7] + " (" + local_branch + ")")
-        print("  remote: " + (remote_sha[:7] or "unknown") + " (" + (remote_date or "unknown") + ")")
-        print("  dirty:  " + str(is_dirty) + "  ahead: " + str(ahead) + "  behind: " + str(behind))
-        print()
-        print("INSTRUCTIONS FOR CALLING AGENT:")
-        print()
-        for i, step in enumerate(instructions["steps"], 1):
-            print("  Step %d: %s" % (i, step["action"]))
-            print("    command: " + step["command"])
-            if step.get("why"):
-                print("    why: " + step["why"])
-            if step.get("conflict_resolution"):
-                print("    conflict resolution: " + step["conflict_resolution"])
-            print()
-        if instructions.get("notes"):
-            print("NOTES:")
-            for note in instructions["notes"]:
-                print("  - " + note)
+        print(output, end="")
+
+    # Write sync log
+    if not getattr(args, "no_log", False):
+        log_dir = asmp_dir / "logs" / "sync"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / ("%s.log" % datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        try:
+            log_file.write_text(output)
+        except Exception:
+            print("WARNING: Failed to write sync log to %s" % log_file, file=sys.stderr)
     return 0
 
 
