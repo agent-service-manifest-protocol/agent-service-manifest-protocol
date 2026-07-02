@@ -1,0 +1,42 @@
+asmp: "0.1"
+kind: ai-model
+name: openrouter-glm-5.2
+description: "OpenRouter-hosted GLM-5.2 — strong code + reasoning at low cost"
+version: "0.1.0"
+owner: dshanklin
+
+model:
+  provider: openrouter
+  model_id: z-ai/glm-5.2
+  base_url: https://openrouter.ai/api/v1
+  context_window: 128000
+  max_output_tokens: 8192
+
+capabilities:
+  provides:
+    - llm.inference
+    - llm.code_generation
+    - llm.reasoning
+    - llm.general_purpose
+  strengths: [code, reasoning, tool_use]
+  weaknesses: [vision]
+
+pricing:
+  input_per_1m: 0.10
+  output_per_1m: 0.30
+  tier: paid
+  quota_monthly_tokens: null
+
+secret:
+  env_var: OPENROUTER_API_KEY
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+health:
+  method: llm_ping
+  target: https://openrouter.ai/api/v1/models
+  interval: 300s
+  timeout: 10s
+
+display:
+  icon: chip
+  section: ai-models

@@ -1,0 +1,37 @@
+asmp: "0.1"
+kind: ai-model
+name: ollama-local
+description: "Local Ollama runtime — free, offline, no API key required"
+version: "0.1.0"
+owner: dshanklin
+
+model:
+  provider: ollama
+  model_id: llama3.1:8b
+  base_url: http://localhost:11434/v1
+  context_window: 128000
+  max_output_tokens: 4096
+
+capabilities:
+  provides:
+    - llm.inference
+    - llm.code_generation
+    - llm.general_purpose
+  strengths: [local, private, offline]
+  weaknesses: [deep_reasoning, throughput, vision]
+
+pricing:
+  input_per_1m: 0.00
+  output_per_1m: 0.00
+  tier: free
+  quota_monthly_tokens: null
+
+health:
+  method: llm_ping
+  target: http://localhost:11434/api/tags
+  interval: 300s
+  timeout: 5s
+
+display:
+  icon: chip
+  section: ai-models

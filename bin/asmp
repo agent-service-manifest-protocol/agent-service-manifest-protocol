@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -1232,6 +1233,130 @@ def cmd_todos(args: argparse.Namespace) -> int:
         return _print_pending_discoveries(pending, json_out=args.json)
 
 
+def _compute_secret_digest(env_var: str) -> Optional[str]:
+    """Digest the current env value (never the raw secret) so a manifest can
+    carry a verifiable fingerprint of the key it expects."""
+    val = os.environ.get(env_var)
+    if not val:
+        return None
+    return "sha256:" + hashlib.sha256(f"{env_var}:{val}".encode()).hexdigest()
+
+
+def _fmt_price(pricing: dict) -> str:
+    inp = pricing.get("input_per_1m")
+    outp = pricing.get("output_per_1m")
+    tier = pricing.get("tier") or "?"
+    if inp is None and outp is None:
+        return tier
+    return f"{tier} ${inp}/${outp} per 1M"
+
+
+def _secret_mark(model: dict) -> str:
+    if not model.get("secret_required"):
+        return "○"
+    return "✓" if model.get("secret_verified") else "✗"
+
+
+def cmd_models_list(args: argparse.Namespace) -> int:
+    data = request("GET", "/models")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    if not data:
+        print("No AI models registered.")
+        return 0
+    print(f"AI Models ({len(data)})")
+    for m in sorted(data, key=lambda x: x.get("name", "")):
+        mark = _secret_mark(m)
+        provides = ", ".join(map(str, (m.get("provides") or [])[:4]))
+        print(f"  {mark} {m.get('name')} [{m.get('provider')}]  {_fmt_price(m.get('pricing') or {})}")
+        desc = (m.get("description") or "")[:70]
+        if desc:
+            print(f"      {desc}")
+        if provides:
+            print(f"      provides: {provides}")
+    print("\n  ✓ secret verified   ✗ secret missing/mismatch   ○ no secret required")
+    return 0
+
+
+def cmd_models_recommend(args: argparse.Namespace) -> int:
+    params = {"task": args.task}
+    if args.budget is not None:
+        params["budget"] = str(args.budget)
+    data = request("GET", "/models/recommend", params=params)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    rec = data.get("recommended")
+    if not rec:
+        within = f" within budget ${args.budget}/1M" if args.budget is not None else ""
+        print(f"No verified model matches task '{args.task}'{within}.")
+        return 1
+    pricing = rec.get("pricing") or {}
+    print(f"Recommended for {args.task}: {rec.get('name')} ({rec.get('provider')})")
+    print(f"  model_id: {rec.get('model_id')}")
+    print(f"  base_url: {rec.get('base_url')}")
+    print(f"  pricing:  {_fmt_price(pricing)}")
+    others = [m.get("name") for m in data.get("models", [])[1:]]
+    if others:
+        print(f"  alternatives: {', '.join(others)}")
+    return 0
+
+
+def cmd_models_verify(args: argparse.Namespace) -> int:
+    data = request("POST", "/models/verify")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    print(f"Secret verification: {data.get('verified', 0)}/{data.get('total', 0)} verified")
+    for r in data.get("results", []):
+        mark = "✓" if r.get("verified") else "✗"
+        env = r.get("env_var") or "no secret"
+        print(f"  {mark} {r.get('name')}: {r.get('reason')} ({env})")
+    return 0
+
+
+def cmd_models_health(args: argparse.Namespace) -> int:
+    data = request("GET", "/models/health")
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    if not data:
+        print("No AI models registered.")
+        return 0
+    healthy = sum(1 for r in data if r.get("healthy"))
+    print(f"Model health: {healthy}/{len(data)} reachable")
+    for r in data:
+        mark = "✓" if r.get("healthy") else "✗"
+        detail = r.get("error") or f"HTTP {r.get('status')}"
+        print(f"  {mark} {r.get('name')}: {detail}  {r.get('target') or ''}")
+    return 0
+
+
+def cmd_models_register(args: argparse.Namespace) -> int:
+    manifest = load_manifest(Path(args.manifest))
+    if manifest.get("kind") != "ai-model":
+        raise SystemExit(f"Not an ai-model manifest (kind={manifest.get('kind')})")
+    secret = manifest.get("secret") or {}
+    env_var = secret.get("env_var")
+    if env_var:
+        digest = _compute_secret_digest(env_var)
+        if digest:
+            secret["digest"] = digest
+            manifest["secret"] = secret
+        else:
+            print(f"⚠ {env_var} not set — registering without a fresh secret digest", file=sys.stderr)
+    data = request("POST", "/services", body=manifest)
+    if args.json:
+        emit(data, json_out=True)
+        return 0
+    print(f"✓ registered {data.get('name')} ({manifest.get('model', {}).get('provider')})")
+    if env_var and secret.get("digest"):
+        print(f"  secret digest for {env_var}: {secret['digest'][:23]}…")
+    print(f"  {data.get('path')}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="asmp",
@@ -1350,6 +1475,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     todos_p = sub.add_parser("todos", help="List discovery notes not yet registered")
     todos_p.set_defaults(func=cmd_todos)
+
+    models_p = sub.add_parser(
+        "models",
+        help="AI model registry — list, recommend, verify secrets, health, register",
+        description=(
+            "Query and manage kind: ai-model manifests. Secrets are verified by digest "
+            "against the current environment; raw key values are never stored or shown."
+        ),
+    )
+    models_p.set_defaults(func=cmd_models_list)
+    models_sub = models_p.add_subparsers(dest="models_command")
+
+    models_sub.add_parser("list", help="List all AI models (default)").set_defaults(func=cmd_models_list)
+
+    m_rec = models_sub.add_parser("recommend", help="Cheapest verified model for a task/capability")
+    m_rec.add_argument("--task", required=True, help="Capability to match, e.g. llm.code_generation")
+    m_rec.add_argument("--budget", type=float, help="Max cost per 1M tokens (dollars)")
+    m_rec.set_defaults(func=cmd_models_recommend)
+
+    models_sub.add_parser("verify", help="Verify secret digests against current env").set_defaults(func=cmd_models_verify)
+    models_sub.add_parser("health", help="Ping all model health endpoints").set_defaults(func=cmd_models_health)
+
+    m_reg = models_sub.add_parser("register", help="Compute secret digest and register a model manifest")
+    m_reg.add_argument("manifest", help="Path to ai-model manifest YAML")
+    m_reg.set_defaults(func=cmd_models_register)
+
     return p
 
 

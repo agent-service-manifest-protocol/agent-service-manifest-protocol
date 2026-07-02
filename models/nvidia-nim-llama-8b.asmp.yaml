@@ -1,0 +1,42 @@
+asmp: "0.1"
+kind: ai-model
+name: nvidia-nim-llama-8b
+description: "NVIDIA NIM free-tier Llama 3.1 8B Instruct"
+version: "0.1.0"
+owner: dshanklin
+
+model:
+  provider: nvidia_nim
+  model_id: meta/llama-3.1-8b-instruct
+  base_url: https://integrate.api.nvidia.com/v1
+  context_window: 128000
+  max_output_tokens: 4096
+
+capabilities:
+  provides:
+    - llm.inference
+    - llm.code_generation
+    - llm.reasoning
+    - llm.general_purpose
+  strengths: [general, code, concise]
+  weaknesses: [deep_reasoning, vision]
+
+pricing:
+  input_per_1m: 0.00
+  output_per_1m: 0.00
+  tier: free
+  quota_monthly_tokens: 10000000
+
+secret:
+  env_var: NVIDIA_API_KEY
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+health:
+  method: llm_ping
+  target: https://integrate.api.nvidia.com/v1/models
+  interval: 300s
+  timeout: 10s
+
+display:
+  icon: chip
+  section: ai-models
