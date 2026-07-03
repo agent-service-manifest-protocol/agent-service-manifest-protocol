@@ -87,6 +87,18 @@ Run manually:
 cronjob action='run' job_id='<job_id>'
 ```
 
+### Repo-wide health check
+
+Use the bundled `scripts/git-check.sh` to scan all local repos for
+ahead/behind/dirty/stash/branch status at once:
+
+```
+bash ~/.hermes/skills/asmp/asmp-daily-heartbeat/scripts/git-check.sh
+```
+
+This catches repos that have diverged from their remotes even when
+`asmp sync` itself is clean.
+
 ## Troubleshooting
 
 ### Job reports "clean" but local SHA doesn't match remote
@@ -111,28 +123,83 @@ clean old logs:
 find ~/.asmp/logs/sync/ -name '*.log' -mtime +30 -delete
 ```
 
-## Cleanup After Initial Sync
+## Cleanup After Sync — Agent Procedure
 
-After the first sync brings the local repo in line with upstream, prune any
-stale branches so only `main` remains:
+After syncing (or after any Foreman worker finishes), stale artifacts
+accumulate. Run through these in order:
+
+### 1. Drop stale stashes
+
+Stashes from WIP commits before the initial sync are dead weight once
+`main` tracks upstream:
 
 ```bash
 cd ~/.asmp
-# Remove stale local branches (foreman workers, old feature branches)
+# List them first
+git stash list
+# Drop individually or clear all
+git stash drop      # or: git stash clear
+```
+
+### 2. Remove Foreman worktrees
+
+Foreman creates isolated worktrees for each worker. After the work is
+merged and pushed, the worktree is dead. `git branch -D` won't work on
+worktree branches (they show a `+` prefix in `git branch`) — you must
+use `git worktree remove`:
+
+```bash
+# Find them
+git worktree list
+# Remove each (use --force if dirty)
+git worktree remove /path/to/worktree
+git worktree remove --force /path/to/worktree  # if it has cruft
+# Prune stale metadata
+git worktree prune
+```
+
+Verify worktrees are gone:
+```bash
+git worktree list
+# Should show only: /Users/.../asmp  <sha> [main]
+```
+
+### 3. Delete stale local branches
+
+Once worktrees are removed, any remaining non-main branches are safe to
+delete:
+
+```bash
 git branch | grep -v '^*' | grep -v main | xargs git branch -D
-# Remove stale remote tracking branches
+```
+
+### 4. Prune remote tracking
+
+```bash
 git remote prune origin
 ```
 
-Verify:
+### 5. Confirm end state
 
 ```bash
-git branch -a
-# Should show only: * main, remotes/origin/main
+git branch       # only * main
+git worktree list # only main
+git stash list    # empty
+asmp sync         # state: clean
 ```
 
-This keeps the repo tidy and prevents `asmp sync` from having to reason about
-branches that no longer matter.
+### Full cleanup one-liner (for agents)
+
+```bash
+cd ~/.asmp && \
+  git stash clear && \
+  for wt in $(git worktree list | grep -v '(bare)' | grep -v '\[main\]' | awk '{print $1}'); do
+    git worktree remove --force "$wt" 2>/dev/null || true
+  done && \
+  git worktree prune && \
+  git branch | grep -v '^*' | grep -v main | xargs git branch -D 2>/dev/null || true && \
+  git remote prune origin && \
+  asmp sync
 
 ## Pitfalls
 
