@@ -923,6 +923,151 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Full health report: sync state + registry health + litmus + models health."""
+    import subprocess
+
+    asmp_dir = Path.home() / ".asmp"
+    registry = os.environ.get("ASMP_REGISTRY", DEFAULT_REGISTRY)
+    exit_code = 0
+
+    print("═══ ASMP Doctor ═══")
+    print(f"  registry: {registry}")
+    print()
+
+    # ── 1. CLI git state ──
+    print("── CLI Git State ──")
+    has_git = (asmp_dir / ".git").exists()
+    if not has_git:
+        print("  ⚠ Not a git repo (raw-download install)")
+    else:
+        try:
+            local_branch = subprocess.run(
+                ["git", "branch", "--show-current"],
+                capture_output=True, text=True, cwd=str(asmp_dir), timeout=5
+            ).stdout.strip()
+            local_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, cwd=str(asmp_dir), timeout=5
+            ).stdout.strip()[:7]
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain", "--", "bin/asmp"],
+                capture_output=True, text=True, cwd=str(asmp_dir), timeout=5
+            ).stdout.strip()
+            print(f"  branch: {local_branch}")
+            print(f"  commit: {local_sha}")
+            print(f"  dirty:  {'yes' if dirty else 'no'}")
+            # ahead/behind
+            try:
+                subprocess.run(
+                    ["git", "fetch", "--quiet", "origin"],
+                    cwd=str(asmp_dir), timeout=15, capture_output=True
+                )
+                result = subprocess.run(
+                    ["git", "rev-list", "--left-right", "--count", f"origin/{local_branch}...HEAD"],
+                    capture_output=True, text=True, cwd=str(asmp_dir), timeout=5
+                )
+                behind, ahead = result.stdout.strip().split() if result.stdout.strip() else ("0", "0")
+                print(f"  ahead:  {ahead}")
+                print(f"  behind: {behind}")
+                if int(behind) > 0:
+                    print(f"  ⚠ {behind} commits behind upstream — run 'asmp sync' for instructions")
+                    exit_code = 1
+                if int(ahead) > 0:
+                    print(f"  ⚠ {ahead} local commits not yet pushed")
+            except Exception as e:
+                print(f"  ⚠ Could not check upstream: {e}")
+        except Exception as e:
+            print(f"  ⚠ Git state check failed: {e}")
+            exit_code = 1
+
+    print()
+
+    # ── 2. Registry health ──
+    print("── Registry Health ──")
+    try:
+        health = request("GET", "/health")
+        if args.json:
+            print(f"  {json.dumps(health)}")
+        else:
+            status = health.get("status", "unknown")
+            print(f"  status: {status}")
+            if status != "ok":
+                print(f"  ✗ Registry not healthy")
+                exit_code = 1
+            else:
+                print(f"  ✓ healthy")
+    except Exception as e:
+        print(f"  ✗ FAIL ({e})")
+        exit_code = 1
+
+    print()
+
+    # ── 3. Litmus gate checks ──
+    print("── Litmus ──")
+    checks = [
+        ("health", lambda: request("GET", "/health")),
+        ("host", lambda: request("GET", "/host")),
+        ("services", lambda: request("GET", "/services")),
+        ("capabilities", lambda: request("GET", "/capabilities")),
+        ("email.ingest", lambda: request("GET", "/capabilities", params={"provides": "email.ingest"})),
+        ("discover scan", lambda: request("POST", "/discover/scan")),
+    ]
+    passed = 0
+    failed = 0
+    for name, fn in checks:
+        print(f"  → {name}", end="")
+        try:
+            result = fn()
+            if name == "email.ingest" and not result:
+                raise RuntimeError("no matches")
+            print("  ✓")
+            passed += 1
+        except Exception as e:
+            print(f"  ✗ ({e})")
+            failed += 1
+    print(f"  {passed} passed, {failed} failed")
+    if failed:
+        exit_code = 1
+
+    print()
+
+    # ── 4. Models health ──
+    print("── Models ──")
+    try:
+        models_data = request("GET", "/models")
+        models_list = models_data if isinstance(models_data, list) else models_data.get("models", [])
+        if not models_list:
+            print("  No models registered")
+        else:
+            verified = 0
+            unverified = 0
+            for m in models_list:
+                name = m.get("name", m.get("model_id", "?"))
+                secret_ok = m.get("secret_verified", False)
+                if secret_ok:
+                    verified += 1
+                else:
+                    unverified += 1
+                    print(f"  ⚠ {name}: secret not verified")
+            print(f"  {len(models_list)} models: {verified} verified, {unverified} unverified")
+            if unverified:
+                exit_code = 1
+    except Exception as e:
+        print(f"  ⚠ Could not query models: {e}")
+
+    print()
+    if exit_code == 0:
+        print("✓ Doctor: all checks passed")
+    else:
+        print("✗ Doctor: issues found")
+
+    if args.json:
+        emit({"ok": exit_code == 0, "exit_code": exit_code}, json_out=True)
+
+    return exit_code
+
+
 def cmd_host(args: argparse.Namespace) -> int:
     emit(request("GET", "/host"), json_out=args.json)
     return 0
@@ -1425,6 +1570,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("litmus", help="Run gate checks").set_defaults(func=cmd_litmus)
 
+    sub.add_parser("doctor", help="Full health report — sync + registry health + litmus + models").set_defaults(
+        func=cmd_doctor
+    )
+
     ambient_p = sub.add_parser(
         "ambient",
         help="Emit a tiny ASMP lifecycle context shim for agent hosts",
@@ -1844,7 +1993,7 @@ def _build_sync_instructions(state, asmp_dir, local_branch, local_sha, remote_sh
 
 def main(argv: Optional[list[str]] = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
-    if not any(cmd in argv for cmd in ("version", "update", "sync", "--help", "-h")):
+    if not any(cmd in argv for cmd in ("version", "update", "sync", "doctor", "--help", "-h")):
         try:
             _check_local_git_state()
         except Exception:
