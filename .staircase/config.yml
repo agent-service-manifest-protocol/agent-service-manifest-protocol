@@ -1,0 +1,18 @@
+# .staircase/config.yml — the delivery SLA for this project.
+# Cadence changes: use `staircase set-quota` (never edit cadence_per_day by hand).
+# Time: slot wall-clocks (deadline_local/morning_local) are read in stakeholder_tz; operator_tz is where the agent runs.
+schema: 1
+mission: World-class ASMP host interconnect: concurrent registry, discoverable services, proof-gated readiness
+cadence_per_day: 3
+report_slots: [morning, evening]
+stakeholders: [daniel]
+proof_adapters: [manual]
+gate_command: 
+texture_notes: true
+retired_vocabulary: []
+operator_tz: America/Chicago
+stakeholder_tz: America/Chicago
+deadline_local: 18:00
+morning_local: 07:00
+burden_of_proof: artifact
+require_visual_attestation: false

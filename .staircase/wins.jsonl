@@ -1,0 +1,2 @@
+{"id":"registry-concurrent-cached","note":"ThreadingHTTPServer + mtime cache; tests lock contract; shipped to main","proof":"/Users/dshanklinbv/repos-personal/asmp-protocol/tests/test_asmp_serve_cache.py","schema":1,"ts":"2026-07-11T06:55:35+00:00","type":"win"}
+{"id":"telos-trilogy-asmp","note":"telos-md + research/governor/docket on ASMP; manifests on main","proof":"/Users/dshanklinbv/repos-eidos-agi/telos.md/asmp.yaml","schema":1,"ts":"2026-07-11T06:55:39+00:00","type":"win"}
