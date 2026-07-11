@@ -5,6 +5,31 @@ Durable, cross-system record of changes to the ASMP reference implementation
 files from `main`, so this file is the shared history of what each machine is
 running. Newest first.
 
+## [Unreleased] — Concurrent registry reads (threaded + cached)
+
+Bootstrap `:7700` used to re-parse every `~/.asmp/services/*.asmp.yaml` on
+**every** GET and serve them on a single-threaded `HTTPServer` (listen backlog
+5). Concurrent agent/tool fan-out serialized (~50ms × N) and hard bursts reset
+connections.
+
+### Changed
+- **In-memory service/host index** with mtime signature invalidation. Warm
+  lookups stay in process; disk is re-read when a manifest is written, a file
+  changes, or `POST /reload` runs.
+- **`ThreadingHTTPServer`** so concurrent GETs overlap.
+- **Listen backlog 128** (class-level `request_queue_size`) so agent fan-out is
+  not dropped at accept.
+
+### Contract
+- Warm sequential reads should be sub-millisecond to low-single-digit ms on a
+  laptop, not “parse all YAML every time.”
+- Concurrent `/health` (dozens of parallel clients) must complete with **zero**
+  connection failures and wall time clearly better than serial × N.
+
+### Tests
+- `tests/test_asmp_serve_cache.py` — warm cache, write invalidation, external
+  file mtime, concurrent health, source guards.
+
 ## [Unreleased] — Federate via conduit
 
 - **Conduit as federation transport.** A peer may name a conduit `machine_id`

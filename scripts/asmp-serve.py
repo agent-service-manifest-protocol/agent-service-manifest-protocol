@@ -13,7 +13,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
@@ -28,6 +28,15 @@ SERVICES_DIR = ASMP_DIR / "services"
 HOST_FILE = ASMP_DIR / "host.yaml"
 HISTORY_FILE = ASMP_DIR / "host-history.jsonl"
 PORT = 7700
+
+# In-memory index. Every request used to re-parse all ~/.asmp/services/*.yaml.
+# Cache by directory mtime signature; invalidate on write. ThreadingHTTPServer
+# serves concurrent readers; RLock guards refresh/write.
+_cache_lock = threading.RLock()
+_host_cache: Optional[dict] = None
+_host_mtime_ns: Optional[int] = None
+_services_cache: Optional[dict[str, dict]] = None
+_services_sig: Optional[tuple] = None
 
 
 def host_name(host: dict) -> str:
@@ -47,19 +56,69 @@ MANIFEST_NAMES = ("asmp.yaml", "infra/asmp.yaml")
 DEFAULT_SCAN_ROOTS = ["~/repos-personal", "~/repos-aic", "~/repos-eidos-agi"]
 
 
-def load_host() -> dict:
-    if HOST_FILE.exists():
-        with HOST_FILE.open() as f:
-            return yaml.safe_load(f) or {}
-    return {
-        "host_id": "unknown",
-        "registry": {"path": str(SERVICES_DIR), "api": f"http://127.0.0.1:{PORT}"},
-    }
+def _host_file_mtime_ns() -> Optional[int]:
+    try:
+        return HOST_FILE.stat().st_mtime_ns if HOST_FILE.exists() else None
+    except OSError:
+        return None
 
 
-def load_services(local: Optional[str] = None) -> dict[str, dict]:
-    if local is None:
-        local = host_name(load_host())
+def _services_signature() -> tuple:
+    """Cheap fingerprint of the services directory — names, sizes, mtimes."""
+    if not SERVICES_DIR.exists():
+        return (0, ())
+    try:
+        dir_mtime = SERVICES_DIR.stat().st_mtime_ns
+    except OSError:
+        dir_mtime = 0
+    files: list[tuple[str, int, int]] = []
+    try:
+        for path in SERVICES_DIR.glob("*.asmp.yaml"):
+            try:
+                st = path.stat()
+                files.append((path.name, st.st_mtime_ns, st.st_size))
+            except OSError:
+                continue
+    except OSError:
+        return (dir_mtime, ())
+    files.sort()
+    return (dir_mtime, tuple(files))
+
+
+def invalidate_caches() -> None:
+    """Drop cached host + services. Next load rebuilds from disk."""
+    global _host_cache, _host_mtime_ns, _services_cache, _services_sig
+    with _cache_lock:
+        _host_cache = None
+        _host_mtime_ns = None
+        _services_cache = None
+        _services_sig = None
+
+
+def load_host(*, force: bool = False) -> dict:
+    global _host_cache, _host_mtime_ns
+    with _cache_lock:
+        mtime = _host_file_mtime_ns()
+        if (
+            not force
+            and _host_cache is not None
+            and _host_mtime_ns == mtime
+        ):
+            return dict(_host_cache)
+        if HOST_FILE.exists():
+            with HOST_FILE.open() as f:
+                data = yaml.safe_load(f) or {}
+        else:
+            data = {
+                "host_id": "unknown",
+                "registry": {"path": str(SERVICES_DIR), "api": f"http://127.0.0.1:{PORT}"},
+            }
+        _host_cache = data
+        _host_mtime_ns = mtime
+        return dict(data)
+
+
+def _load_services_from_disk(local: str) -> dict[str, dict]:
     services: dict[str, dict] = {}
     if not SERVICES_DIR.exists():
         return services
@@ -76,14 +135,37 @@ def load_services(local: Optional[str] = None) -> dict[str, dict]:
     return services
 
 
+def load_services(local: Optional[str] = None, *, force: bool = False) -> dict[str, dict]:
+    """Return the service index. Cached; rebuilds when any manifest mtime changes."""
+    global _services_cache, _services_sig
+    if local is None:
+        local = host_name(load_host())
+    with _cache_lock:
+        sig = _services_signature()
+        if (
+            not force
+            and _services_cache is not None
+            and _services_sig == sig
+        ):
+            return dict(_services_cache)
+        services = _load_services_from_disk(local)
+        _services_cache = services
+        _services_sig = sig
+        return dict(services)
+
+
 def write_manifest(manifest: dict, local: Optional[str] = None) -> Path:
     if local is None:
         local = host_name(load_host())
     manifest.setdefault("host", local)
     SERVICES_DIR.mkdir(parents=True, exist_ok=True)
     path = SERVICES_DIR / f"{entry_key(manifest, local)}.asmp.yaml"
-    with path.open("w") as f:
-        yaml.safe_dump(manifest, f, default_flow_style=False, sort_keys=False)
+    with _cache_lock:
+        with path.open("w") as f:
+            yaml.safe_dump(manifest, f, default_flow_style=False, sort_keys=False)
+        global _services_cache, _services_sig
+        _services_cache = None
+        _services_sig = None
     return path
 
 
@@ -450,7 +532,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/reload":
-            services = load_services()
+            invalidate_caches()
+            services = load_services(force=True)
             self._json({"message": "Registry reloaded", "total": len(services)})
             return
 
@@ -501,8 +584,20 @@ def main():
     if (host.get("federation") or {}).get("peers"):
         threading.Thread(target=_federation_loop, daemon=True, name="asmp-federate").start()
         log.info("Federation enabled: %d peer(s)", len((host["federation"]["peers"])))
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
-    log.info("ASMP registry on http://127.0.0.1:%s (%s services)", PORT, len(load_services()))
+    # Threading so concurrent agent/tool lookups overlap. Cache keeps each
+    # thread from re-parsing every YAML on every request. request_queue_size
+    # must be on the class (bind happens in __init__); default 5 drops fan-out.
+    class _Server(ThreadingHTTPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+        request_queue_size = 128
+
+    server = _Server(("127.0.0.1", PORT), Handler)
+    log.info(
+        "ASMP registry on http://127.0.0.1:%s (%s services, threaded+cached)",
+        PORT,
+        len(load_services()),
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
