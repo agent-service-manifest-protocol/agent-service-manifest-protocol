@@ -1,34 +1,75 @@
 # Changelog
 
+## [0.3.2-go] — Federation, models, scan, MCP
+
+- **Federation**: correct `conduit run --target X -- cmd`; expanded PATH +
+  `CONDUIT_PYTHON` for LaunchAgent; stdout-only JSON with first-`[` extract;
+  CLI `asmp federate` runs **in-process** (launchd-spawned server was SIGKILLing
+  conduit children).
+- **Models**: `/models`, `/models/recommend`, `/models/health`, `/models/verify`
+  + `asmp models …` in Go.
+- **Scan**: `POST /discover/scan` + `asmp scan` (in-process).
+- **MCP**: `asmp-mcp.py` uses Go CLI; compact session context; tools for
+  context/hosts/todos; route via Go ranker. Discovery todo `asmp-mcp-tool`
+  marked resolved (enable MCP in client still required — Grok has `mcps=false`).
+- LaunchAgent PATH/HOME for serve + conduit children.
+
+
+## [0.3.1-go] — Hardening pass
+
+- Fix compact cards (nested Manifest maps broke provides/commands).
+- Rank thresholds + no positive_example blob pollution.
+- API: /hosts, /hosts/history, POST register/announce/federate.
+- CLI: hosts, host-history, register, announce, todo, todos, federate.
+- Federation loop with 12s peer timeouts + batch cache invalidate.
+
+
+## [0.3.0-go] — Native Go registry + CLI
+
+- **Go rewrite** of the agent hot path: `asmp serve`, `health`, `find`, `get`,
+  `list`, `caps`, `context`, `route`, `reload`, `host`, `version`.
+- Source: `~/.asmp/go/` — single binary `~/.asmp/bin/asmp`.
+- Python CLI preserved as `~/.asmp/bin/asmp-py` for ambient/oracle/models/doctor/sync;
+  unknown subcommands fall through automatically.
+- LaunchAgent `io.agentservicemanifest.registry` now runs `asmp serve` (Go).
+- Health JSON includes `"engine":"go"`. Warm HTTP health typically **&lt;5–50ms**;
+  CLI process start is milliseconds vs multi-second Python.
+
+
 Durable, cross-system record of changes to the ASMP reference implementation
 (`scripts/asmp-serve.py` + `scripts/asmp`). Every machine bootstraps these
 files from `main`, so this file is the shared history of what each machine is
 running. Newest first.
 
-## [Unreleased] — Concurrent registry reads (threaded + cached)
+## [Unreleased] — Agent-speed registry (cache, rank, context)
 
-Bootstrap `:7700` used to re-parse every `~/.asmp/services/*.asmp.yaml` on
-**every** GET and serve them on a single-threaded `HTTPServer` (listen backlog
-5). Concurrent agent/tool fan-out serialized (~50ms × N) and hard bursts reset
-connections.
+Root-cause fixes after agents spent multi-seconds per `health`/`find` and got
+full catalog dumps for free-text queries.
 
-### Changed
-- **In-memory service/host index** with mtime signature invalidation. Warm
-  lookups stay in process; disk is re-read when a manifest is written, a file
-  changes, or `POST /reload` runs.
-- **`ThreadingHTTPServer`** so concurrent GETs overlap.
-- **Listen backlog 128** (class-level `request_queue_size`) so agent fan-out is
-  not dropped at accept.
+### Fixed (latency)
+- **In-process registry cache** with fingerprint invalidation (count + mtime +
+  size). Reloading ~90 YAML files was ~1.8s per request; warm hits are ms.
+- **Threaded server** (`ThreadingHTTPServer`) so concurrent agent calls do not
+  serialize behind each other.
+- **Compact JSON** responses (no `indent=2`) — smaller payloads.
+- **CLI hot path** no longer runs `git fetch` / network update checks on
+  `health`/`find`/`get`/`list`/`caps`/`context`/`route`/`ambient`.
 
-### Contract
-- Warm sequential reads should be sub-millisecond to low-single-digit ms on a
-  laptop, not “parse all YAML every time.”
-- Concurrent `/health` (dozens of parallel clients) must complete with **zero**
-  connection failures and wall time clearly better than serial × N.
+### Fixed (discovery quality)
+- **`GET /services?q=` actually filters and ranks** (was ignored → 93-service
+  dumps). Default `limit=10` for free-text find; `compact=true` for cards.
+- **`asmp find --query`** passes compact+limit; client-side rank fallback if an
+  older server still returns the full catalog. `--all` / `--limit` supported.
+- **`GET /context`** + **`asmp context --prompt`** for compact agent bootstrap.
+- **`asmp route --query/--capability`** CLI parity with MCP `asmp_route`.
+- **Honest `/health`**: reports `local`/`federated`, `health_probe: not_run`,
+  cache hit stats — no longer pretends `healthy: 0` is a real probe result.
+- **Ambient triggers** expanded for finance/dally/hermes/tally/plaid/tokut.
 
-### Tests
-- `tests/test_asmp_serve_cache.py` — warm cache, write invalidation, external
-  file mtime, concurrent health, source guards.
+### Registered
+- **`dally`** — local Plaid/sync daemon surface (`reeves3.dally.cli` + sqlite).
+- **`hermes`** — session store + `hermes sessions` / resume commands.
+- **`reeves-tally`** aliases/examples for finance routing.
 
 ## [Unreleased] — Federate via conduit
 
