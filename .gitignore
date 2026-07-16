@@ -6,3 +6,4 @@ host-history.jsonl
 discoveries.jsonl
 services/
 foreman/
+.shipr/

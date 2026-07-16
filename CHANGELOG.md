@@ -11,78 +11,68 @@ Two implementation lines are tracked here:
 - **`X.Y.Z-go`** — the native Go rewrite of the agent hot path, developed
   on the fleet. Its source is not yet vendored into this repo.
 
-## [0.4.0] — 2026-07-16 — Agent-speed registry, federation, host-awareness
+## [0.4.1] — 2026-07-16 — Correct the 0.4.0 changelog
 
-First tagged release of the Python reference implementation since `0.2.0`.
-Rolls up three previously-unreleased tranches: host-aware registry, conduit
-federation, and the agent-speed (cache/rank/context) pass. Numbered `0.4.0`
-rather than `0.3.0` to avoid colliding with the concurrent `0.3.x-go` line.
+No code change. `v0.4.0` was tagged with a changelog that described features
+this repo does not contain.
 
-### Agent-speed registry (cache, rank, context)
+One of the `[Unreleased]` tranches rolled into 0.4.0 was describing the **Go
+engine**, not the Python reference implementation: ranked `GET /services?q=`,
+`GET /context`, honest `/health` (probe state + cache stats), `asmp route`, and
+`asmp context`. None of those exist in any Python server here — `health_probe`
+and `/context` are absent from `scripts/asmp-serve.py`, `bin/asmp-serve.py`,
+and the installed copy alike. They were filed under a Python release purely
+because they sat beneath an `[Unreleased]` heading.
 
-Root-cause fixes after agents spent multi-seconds per `health`/`find` and got
-full catalog dumps for free-text queries.
+The 0.4.0 entry below is now restricted to claims verified present in the
+tagged code, with the Go-only work named as such under "Not in this release".
+`v0.4.0` is left standing rather than re-tagged: the false entry is part of
+this repo's history, and superseding it is more honest than erasing it.
 
-### Fixed (latency)
+**Lesson:** a changelog heading is not evidence. Verify each claim against the
+artifact before tagging — the check is `grep` for the symbol, not "the tests
+pass" or "the CLI prints the right version". Neither of those can detect a
+changelog describing a different codebase.
+
+## [0.4.0] — 2026-07-16 — Host-aware registry, conduit federation, warm cache
+
+First tagged release of the **Python reference implementation** since `0.2.0`.
+Rolls up the host-awareness, federation, and registry-cache work that had been
+sitting under stacked `[Unreleased]` headings. Numbered `0.4.0` rather than
+`0.3.0` to avoid colliding with the concurrent `0.3.x-go` line.
+
+Every bullet below was verified present in this tag's `scripts/asmp-serve.py`
+and `scripts/asmp`. Work that exists only in the Go engine is listed under the
+`-go` entries, not here.
+
+### Added — host-aware registry and cross-system discovery
+- **Host discovery.** `GET /hosts`, `GET /hosts/history`, and `asmp hosts` /
+  `asmp host-history` report every machine ASMP knows about: the local host,
+  hosts that federated services in, and machines merely *declared* reachable in
+  a service's `infra.machines`. `host_aliases` collapses alternate names for
+  one box.
+- **Cross-system federation.** `POST /federate` plus a background loop pull peer
+  registries over SSH (peers are localhost-bound, so SSH rather than exposing
+  `:7700`). Configured under `federation.peers` in `host.yaml`.
+- **Conduit as federation transport.** A peer may name a conduit `machine_id`
+  (`conduit: mac-mini-01`) instead of a raw `ssh:` target; the hub reaches it via
+  conduit, delegating fleet reach/auth to the layer that owns it rather than
+  hardcoding SSH endpoints. `federation.conduit_bin` points at the conduit CLI;
+  raw `ssh:` peers still work.
+- **Composite `name@host` keying.** Federated services are namespaced by host so
+  they never clobber a local service of the same name (`conduit` exists on every
+  machine). Local services keep their bare name.
+- **Durable host history.** Each federation cycle appends the host roster to
+  `~/.asmp/host-history.jsonl`.
+- **`asmp register` / `asmp announce`** for manifest registration.
+
+### Fixed — registry latency
 - **In-process registry cache** with fingerprint invalidation (count + mtime +
   size). Reloading ~90 YAML files was ~1.8s per request; warm hits are ms.
-- **Threaded server** (`ThreadingHTTPServer`) so concurrent agent calls do not
-  serialize behind each other.
-- **Compact JSON** responses (no `indent=2`) — smaller payloads.
-- **CLI hot path** no longer runs `git fetch` / network update checks on
-  `health`/`find`/`get`/`list`/`caps`/`context`/`route`/`ambient`.
-
-### Fixed (discovery quality)
-- **`GET /services?q=` actually filters and ranks** (was ignored → 93-service
-  dumps). Default `limit=10` for free-text find; `compact=true` for cards.
-- **`asmp find --query`** passes compact+limit; client-side rank fallback if an
-  older server still returns the full catalog. `--all` / `--limit` supported.
-- **`GET /context`** + **`asmp context --prompt`** for compact agent bootstrap.
-- **`asmp route --query/--capability`** CLI parity with MCP `asmp_route`.
-- **Honest `/health`**: reports `local`/`federated`, `health_probe: not_run`,
-  cache hit stats — no longer pretends `healthy: 0` is a real probe result.
-- **Ambient triggers** expanded for finance/dally/hermes/tally/plaid/tokut.
-
-### Registered
-- **`dally`** — local Plaid/sync daemon surface (`reeves3.dally.cli` + sqlite).
-- **`hermes`** — session store + `hermes sessions` / resume commands.
-- **`reeves-tally`** aliases/examples for finance routing.
-
-### Federate via conduit
-
-- **Conduit as federation transport.** A peer may name a conduit `machine_id`
-  (`conduit: mac-mini-01`) instead of a raw `ssh:` target. The hub then reaches
-  it via `conduit run --target <id>` — delegating fleet reach/auth (user,
-  endpoint, host-key handling) to conduit, the layer that owns it, instead of
-  hardcoding SSH endpoints in `host.yaml`. `federation.conduit_bin` points at
-  the conduit CLI; raw `ssh:` peers still work.
-
-### Host-aware registry + cross-system discovery
-
-The bootstrap registry was single-host: every service was implicitly local,
-keyed by bare name, with no notion of other machines. This makes ASMP
-fleet-aware while keeping the per-request, file-backed design.
-
-### Added
-- **Host discovery.** `GET /hosts` and `asmp hosts` report every machine ASMP
-  knows about — the local host, hosts that have federated services in, and
-  machines merely *declared* reachable in a service's `infra.machines`
-  (e.g. conduit). `host_aliases` collapses alternate names for one box.
-- **Cross-system federation.** `POST /federate` and a background loop pull peer
-  registries over SSH (peers are localhost-bound, so SSH rather than exposing
-  `:7700`). Configured in `host.yaml`:
-  ```yaml
-  federation:
-    peers:
-      - { host: daniels-mac-mini, ssh: mac-mini-01 }
-    host_aliases: { mac-mini-01: daniels-mac-mini }
-  ```
-- **Composite `name@host` keying.** Federated services are namespaced by host
-  so they never clobber a local service of the same name (`conduit` exists on
-  every machine). Local services keep their bare name.
-- **Durable host history.** Each federation cycle appends the host roster to
-  `~/.asmp/host-history.jsonl`; read via `GET /hosts/history?host=&limit=` and
-  `asmp host-history`.
+- **`ThreadingHTTPServer`** so concurrent agent calls overlap instead of
+  serializing behind each other.
+- **Listen backlog 128** (class-level `request_queue_size`); the default of 5
+  reset connections under agent fan-out.
 
 ### Changed
 - `GET /services?host=<h>` filters by host; entries now carry a `host` field.
@@ -90,8 +80,13 @@ fleet-aware while keeping the per-request, file-backed design.
 
 ### Topology
 - Hub-and-spoke: the **mac-mini** is the hub (holds `federation.peers` and the
-  full fleet view); the laptop and cyprus are spokes. Full mesh is a later step
-  (add `peers` to each `host.yaml`).
+  full fleet view); the laptop and cyprus are spokes. Full mesh is a later step.
+
+### Not in this release
+Ranked `GET /services?q=`, `GET /context`, honest `/health` (probe state + cache
+stats), and `asmp route` / `asmp context` are **Go-engine features** — see the
+`-go` entries. They are not present in the Python reference implementation and
+were previously mis-filed against it.
 
 
 ## [0.3.2-go] — Federation, models, scan, MCP
