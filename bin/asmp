@@ -31,7 +31,7 @@ HOST_FILE = Path.home() / ".asmp" / "host.yaml"
 DISCOVERIES_FILE = Path.home() / ".asmp" / "discoveries.jsonl"
 
 # ── Self-update check ──────────────────────────────────────────────
-ASMP_VERSION = "0.2.0"
+ASMP_VERSION = "0.4.0"
 ASMP_COMMIT = "1eb8bd85fff0c56ba43d79bfe8d02137b27e3562"
 GITHUB_REPO = "agent-service-manifest-protocol/agent-service-manifest-protocol"
 UPDATE_CACHE_FILE = Path.home() / ".asmp" / ".update-check.json"

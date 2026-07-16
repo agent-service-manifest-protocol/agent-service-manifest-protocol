@@ -1,47 +1,24 @@
 # Changelog
 
-## [0.3.2-go] — Federation, models, scan, MCP
+Durable, cross-system record of changes to ASMP. Every machine bootstraps
+`scripts/asmp-serve.py` + `scripts/asmp` from `main`, so this file is the
+shared history of what each machine is running. Newest first.
 
-- **Federation**: correct `conduit run --target X -- cmd`; expanded PATH +
-  `CONDUIT_PYTHON` for LaunchAgent; stdout-only JSON with first-`[` extract;
-  CLI `asmp federate` runs **in-process** (launchd-spawned server was SIGKILLing
-  conduit children).
-- **Models**: `/models`, `/models/recommend`, `/models/health`, `/models/verify`
-  + `asmp models …` in Go.
-- **Scan**: `POST /discover/scan` + `asmp scan` (in-process).
-- **MCP**: `asmp-mcp.py` uses Go CLI; compact session context; tools for
-  context/hosts/todos; route via Go ranker. Discovery todo `asmp-mcp-tool`
-  marked resolved (enable MCP in client still required — Grok has `mcps=false`).
-- LaunchAgent PATH/HOME for serve + conduit children.
+Two implementation lines are tracked here:
 
+- **`X.Y.Z`** — the Python reference implementation in this repo
+  (`scripts/` = registry server + bootstrap, `bin/` = CLI).
+- **`X.Y.Z-go`** — the native Go rewrite of the agent hot path, developed
+  on the fleet. Its source is not yet vendored into this repo.
 
-## [0.3.1-go] — Hardening pass
+## [0.4.0] — 2026-07-16 — Agent-speed registry, federation, host-awareness
 
-- Fix compact cards (nested Manifest maps broke provides/commands).
-- Rank thresholds + no positive_example blob pollution.
-- API: /hosts, /hosts/history, POST register/announce/federate.
-- CLI: hosts, host-history, register, announce, todo, todos, federate.
-- Federation loop with 12s peer timeouts + batch cache invalidate.
+First tagged release of the Python reference implementation since `0.2.0`.
+Rolls up three previously-unreleased tranches: host-aware registry, conduit
+federation, and the agent-speed (cache/rank/context) pass. Numbered `0.4.0`
+rather than `0.3.0` to avoid colliding with the concurrent `0.3.x-go` line.
 
-
-## [0.3.0-go] — Native Go registry + CLI
-
-- **Go rewrite** of the agent hot path: `asmp serve`, `health`, `find`, `get`,
-  `list`, `caps`, `context`, `route`, `reload`, `host`, `version`.
-- Source: `~/.asmp/go/` — single binary `~/.asmp/bin/asmp`.
-- Python CLI preserved as `~/.asmp/bin/asmp-py` for ambient/oracle/models/doctor/sync;
-  unknown subcommands fall through automatically.
-- LaunchAgent `io.agentservicemanifest.registry` now runs `asmp serve` (Go).
-- Health JSON includes `"engine":"go"`. Warm HTTP health typically **&lt;5–50ms**;
-  CLI process start is milliseconds vs multi-second Python.
-
-
-Durable, cross-system record of changes to the ASMP reference implementation
-(`scripts/asmp-serve.py` + `scripts/asmp`). Every machine bootstraps these
-files from `main`, so this file is the shared history of what each machine is
-running. Newest first.
-
-## [Unreleased] — Agent-speed registry (cache, rank, context)
+### Agent-speed registry (cache, rank, context)
 
 Root-cause fixes after agents spent multi-seconds per `health`/`find` and got
 full catalog dumps for free-text queries.
@@ -71,7 +48,7 @@ full catalog dumps for free-text queries.
 - **`hermes`** — session store + `hermes sessions` / resume commands.
 - **`reeves-tally`** aliases/examples for finance routing.
 
-## [Unreleased] — Federate via conduit
+### Federate via conduit
 
 - **Conduit as federation transport.** A peer may name a conduit `machine_id`
   (`conduit: mac-mini-01`) instead of a raw `ssh:` target. The hub then reaches
@@ -80,7 +57,7 @@ full catalog dumps for free-text queries.
   hardcoding SSH endpoints in `host.yaml`. `federation.conduit_bin` points at
   the conduit CLI; raw `ssh:` peers still work.
 
-## [Unreleased] — Host-aware registry + cross-system discovery
+### Host-aware registry + cross-system discovery
 
 The bootstrap registry was single-host: every service was implicitly local,
 keyed by bare name, with no notion of other machines. This makes ASMP
@@ -115,3 +92,39 @@ fleet-aware while keeping the per-request, file-backed design.
 - Hub-and-spoke: the **mac-mini** is the hub (holds `federation.peers` and the
   full fleet view); the laptop and cyprus are spokes. Full mesh is a later step
   (add `peers` to each `host.yaml`).
+
+
+## [0.3.2-go] — Federation, models, scan, MCP
+
+- **Federation**: correct `conduit run --target X -- cmd`; expanded PATH +
+  `CONDUIT_PYTHON` for LaunchAgent; stdout-only JSON with first-`[` extract;
+  CLI `asmp federate` runs **in-process** (launchd-spawned server was SIGKILLing
+  conduit children).
+- **Models**: `/models`, `/models/recommend`, `/models/health`, `/models/verify`
+  + `asmp models …` in Go.
+- **Scan**: `POST /discover/scan` + `asmp scan` (in-process).
+- **MCP**: `asmp-mcp.py` uses Go CLI; compact session context; tools for
+  context/hosts/todos; route via Go ranker. Discovery todo `asmp-mcp-tool`
+  marked resolved (enable MCP in client still required — Grok has `mcps=false`).
+- LaunchAgent PATH/HOME for serve + conduit children.
+
+
+## [0.3.1-go] — Hardening pass
+
+- Fix compact cards (nested Manifest maps broke provides/commands).
+- Rank thresholds + no positive_example blob pollution.
+- API: /hosts, /hosts/history, POST register/announce/federate.
+- CLI: hosts, host-history, register, announce, todo, todos, federate.
+- Federation loop with 12s peer timeouts + batch cache invalidate.
+
+
+## [0.3.0-go] — Native Go registry + CLI
+
+- **Go rewrite** of the agent hot path: `asmp serve`, `health`, `find`, `get`,
+  `list`, `caps`, `context`, `route`, `reload`, `host`, `version`.
+- Source: `~/.asmp/go/` — single binary `~/.asmp/bin/asmp`.
+- Python CLI preserved as `~/.asmp/bin/asmp-py` for ambient/oracle/models/doctor/sync;
+  unknown subcommands fall through automatically.
+- LaunchAgent `io.agentservicemanifest.registry` now runs `asmp serve` (Go).
+- Health JSON includes `"engine":"go"`. Warm HTTP health typically **&lt;5–50ms**;
+  CLI process start is milliseconds vs multi-second Python.
