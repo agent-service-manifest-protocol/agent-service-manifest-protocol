@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -152,6 +156,61 @@ def load_services(local: Optional[str] = None, *, force: bool = False) -> dict[s
         _services_cache = services
         _services_sig = sig
         return dict(services)
+
+
+_PROBE_TIMEOUT = 4
+_health_cache: dict = {"ts": 0.0, "data": None}
+_HEALTH_TTL = 15  # ponytail: cheap-and-repeatable — don't re-probe on every poll
+
+
+def probe_one(manifest: dict, local: str) -> str:
+    """Real vital for one service -> healthy|degraded|unhealthy|unchecked.
+    Never fabricates: no health spec or a remote host we can't reach -> unchecked."""
+    # only probe services that live on this machine; remote/federated are unreachable here
+    if manifest.get("host") and manifest["host"] != local:
+        return "unchecked"
+    h = manifest.get("health") or {}
+    method, target = h.get("method"), h.get("target", "")
+    if not method or not target:
+        return "unchecked"
+    try:
+        if method == "http":
+            try:
+                with urllib.request.urlopen(urllib.request.Request(target, method="GET"), timeout=_PROBE_TIMEOUT):
+                    return "healthy"
+            except urllib.error.HTTPError:
+                return "healthy"  # server answered (even 4xx) == it's up
+        if method == "tcp":
+            host, port = target.rsplit(":", 1)
+            with socket.create_connection((host, int(port)), timeout=_PROBE_TIMEOUT):
+                return "healthy"
+        if method == "launchctl":
+            r = subprocess.run(["launchctl", "list", target], capture_output=True, text=True, timeout=_PROBE_TIMEOUT)
+            if r.returncode != 0:
+                return "unhealthy"
+            pid = next((l.split("=")[1].strip().rstrip(";").strip()
+                        for l in r.stdout.splitlines() if '"PID"' in l), None)
+            return "healthy" if pid and pid != "0" else "degraded"
+        return "unchecked"  # unknown method -> honest unchecked, never assumed ok
+    except Exception:
+        return "unhealthy"
+
+
+def probe_health(services: dict, local: str) -> dict:
+    """Parallel real-vitals sweep with a short TTL cache. Replaces the old
+    hardcoded {healthy:0, unchecked:N} that never took a pulse."""
+    now = time.time()
+    if _health_cache["data"] and now - _health_cache["ts"] < _HEALTH_TTL:
+        return _health_cache["data"]
+    manifests = list(services.values())
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        statuses = list(ex.map(lambda m: probe_one(m, local), manifests))
+    counts = {"healthy": 0, "degraded": 0, "unhealthy": 0, "unchecked": 0}
+    for s in statuses:
+        counts[s] = counts.get(s, 0) + 1
+    data = {"total": len(manifests), "checked_at": datetime.now(timezone.utc).isoformat(), **counts}
+    _health_cache.update(ts=now, data=data)
+    return data
 
 
 def write_manifest(manifest: dict, local: Optional[str] = None) -> Path:
@@ -451,13 +510,13 @@ class Handler(BaseHTTPRequestHandler):
         host = load_host()
 
         if path == "/health":
+            local = host_name(host)
+            vitals = probe_health(services, local)
+            status = "ok" if vitals["unhealthy"] == 0 else "degraded"
             self._json({
-                "status": "ok",
+                "status": status,
                 "host": host.get("host_id", host.get("hostname", "unknown")),
-                "total": len(services),
-                "healthy": 0,
-                "unhealthy": 0,
-                "unchecked": len(services),
+                **vitals,
             })
             return
 

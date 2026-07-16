@@ -11,6 +11,52 @@ Two implementation lines are tracked here:
 - **`X.Y.Z-go`** — the native Go rewrite of the agent hot path, developed
   on the fleet. Its source is not yet vendored into this repo.
 
+## [0.4.2] — 2026-07-16 — `/health` takes a real pulse
+
+`/health` has never checked anything. It returned a hardcoded literal —
+`{healthy: 0, unhealthy: 0, unchecked: len(services)}` with `"status": "ok"` —
+on every request since the server was written. On the machine this was found on,
+a real probe sweep of the same 69 services reports **8 healthy, 3 degraded, 27
+unhealthy, 31 unchecked**. The registry was answering `ok` over 27 dead
+services, to every agent that asked.
+
+### Fixed
+- **`GET /health` runs real parallel probes** (`http` / `tcp` / `launchctl`) via
+  `probe_one` / `probe_health`, with a 15s TTL cache and a 16-way thread pool.
+  Reports `healthy` / `degraded` / `unhealthy` / `unchecked` plus `checked_at`,
+  and `"status": "degraded"` when anything is unhealthy.
+- **Never fabricates.** No health spec, an unknown method (e.g. `pid`), or a
+  service on another host → `unchecked`. Absence of a probe is never reported
+  as health.
+
+### Added
+- `tests/test_asmp_serve_health.py` — locks the honesty contract: a dead port
+  must read `unhealthy`, a live port `healthy`, a spec-less service `unchecked`,
+  and `/health` must call `probe_health` rather than hardcode `healthy: 0`.
+
+### Provenance — this code is a rescue, not new work
+`probe_one` / `probe_health` were written on 2026-07-01 (`314a17d`, *"Backup:
+ASMP registry with real /health probes"*, commit message: *"Never fabricates
+status"*) in a **local clone of this repo at `~/.asmp`, on a `master` branch
+that was never pushed.** Ten days later a merge titled *"prefer upstream main:
+prefer upstream CLI, keep local services"* resolved in favor of the upstream
+server file and **silently dropped both functions**. Nothing caught it: no test
+covered `/health`, and the fabricated literal is indistinguishable from a
+healthy answer unless you know what it should have said.
+
+The fix existed for fifteen days, on one disk, reachable only from an unpushed
+branch, while the bug it fixed kept shipping. That is the whole argument for the
+test added here.
+
+### Corrects [0.4.1]
+0.4.1 stated that honest `/health` is a "Go-engine feature… not present in the
+Python reference implementation." The second half was true of the repo; **the
+first half was false.** A Python implementation existed the whole time — it was
+just unpushed and merge-eaten. The claim was reached by grepping the canonical
+repo, finding nothing, and inferring the feature must belong to Go: absence of
+evidence in one search universe treated as evidence of provenance in another.
+Verify where a thing *is* before asserting where it *belongs*.
+
 ## [0.4.1] — 2026-07-16 — Correct the 0.4.0 changelog
 
 No code change. `v0.4.0` was tagged with a changelog that described features
