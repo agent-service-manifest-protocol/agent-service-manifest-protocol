@@ -7,3 +7,8 @@ discoveries.jsonl
 services/
 foreman/
 .shipr/
+
+# Python bytecode
+__pycache__/
+*.pyc
+.pytest_cache/
