@@ -505,7 +505,7 @@ def _score_service(prompt: str, service: dict) -> int:
     action_boosts = (
         (
             {"test", "qa", "browser", "screenshot", "page", "proof", "validate"},
-            {"browser", "screenshot", "ui proof", "page validation", "protected page", "surfari", "rendered dashboard"},
+            {"browser", "screenshot", "ui proof", "page validation", "protected page", "surfari", "cerebrowse", "rendered dashboard"},
             75,
         ),
         (
