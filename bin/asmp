@@ -503,11 +503,11 @@ def _score_service(prompt: str, service: dict) -> int:
         score -= 10
     prompt_tokens = _meaningful_tokens(low)
     action_boosts = (
-        (
-            {"test", "qa", "browser", "screenshot", "page", "proof", "validate"},
-            {"browser", "screenshot", "ui proof", "page validation", "protected page", "surfari", "cerebrowse", "rendered dashboard"},
-            75,
-        ),
+            (
+                {"test", "qa", "browser", "screenshot", "page", "proof", "validate"},
+                {"browser", "screenshot", "ui proof", "page validation", "protected page", "surfari", "cerebrowse", "rendered dashboard"},
+                75,
+            ),
         (
             {"ship", "publish", "shipment", "dd5", "supabase", "readback", "parity"},
             {"data ship", "data publication", "supabase", "dd5", "publication batch", "cerebro readback", "batch parity"},
@@ -1251,6 +1251,12 @@ def cmd_reload(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_federate(args: argparse.Namespace) -> int:
+    data = request("POST", "/federate")
+    emit(data, json_out=args.json)
+    return 0
+
+
 def cmd_announce(args: argparse.Namespace) -> int:
     manifest = load_manifest(Path(args.manifest))
     data = request("POST", "/services/announce", body=manifest)
@@ -1559,6 +1565,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("scan", help="Scan shipped asmp.yaml into index").set_defaults(func=cmd_scan)
     sub.add_parser("reload", help="Reload index from disk").set_defaults(func=cmd_reload)
+    sub.add_parser("federate", help="Pull peer registries now").set_defaults(func=cmd_federate)
 
     ann = sub.add_parser("announce", help="Handshake register from manifest file")
     ann.add_argument("manifest", help="Path to asmp.yaml")
